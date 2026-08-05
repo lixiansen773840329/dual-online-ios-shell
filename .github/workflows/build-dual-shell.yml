@@ -1,0 +1,72 @@
+name: Build DualOnline Shell
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios-app/DualOnline/**"
+      - "ios-app/tools/generate_xcodeproj.py"
+      - ".github/workflows/build-dual-shell.yml"
+
+jobs:
+  build-shell:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare minimal www + Xcode project
+        run: |
+          mkdir -p ios-app/www
+          if [ ! -f ios-app/www/index.html ]; then
+            printf '%s\n' '<!DOCTYPE html><html><body>DualOnline</body></html>' > ios-app/www/index.html
+          fi
+          cd ios-app
+          python tools/generate_xcodeproj.py
+
+      - name: Build unsigned app (iphoneos)
+        run: |
+          cd ios-app
+          mkdir -p tools/cache/DerivedData
+          xcodebuild \
+            -project DualOnline.xcodeproj \
+            -target DualOnline \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath tools/cache/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Package shell binary + app
+        run: |
+          APP=$(find ios-app/tools/cache/DerivedData/Build/Products -type d -name 'DualOnline.app' | head -n 1)
+          echo "APP=$APP"
+          test -n "$APP"
+          test -f "$APP/DualOnline"
+          mkdir -p dist
+          cp "$APP/DualOnline" dist/DualOnline
+          mkdir -p dist/Payload
+          cp -R "$APP" dist/Payload/
+          (cd dist && zip -qry DualOnline-shell-unsigned.ipa Payload)
+          ls -lh dist/
+
+      - name: Upload DualOnline shell binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-online-native-shell
+          path: dist/DualOnline
+          if-no-files-found: error
+
+      - name: Upload unsigned shell IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-online-shell-ipa
+          path: dist/DualOnline-shell-unsigned.ipa
+          if-no-files-found: error

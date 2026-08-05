@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0c0303">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="双端随行录">
+    <title>双端随行录 · 在线双系统</title>
+    <link rel="shortcut icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%23d4af37' d='M12 2L8 7h8l-4-5zm0 6l-4 5h8l-4-5zm0 6l-4 5h8l-4-5zm0 6l-4 5h8l-4-5z'/></svg>" />
+    <style>
+        :root {
+            --ink: #0c0303;
+            --wine: #5a0a12;
+            --crimson: #8b1018;
+            --garnet: #b4232e;
+            --gold: #c9a24a;
+            --gold-soft: #e6c97a;
+            --gold-bright: #f3dfa0;
+            --ivory: #f7efe0;
+            --muted: rgba(247, 239, 224, 0.62);
+            --line: rgba(201, 162, 74, 0.42);
+            --display: "华文中宋", "STZhongsong", "Songti SC", "Noto Serif SC", "SimSun", serif;
+            --body: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            min-height: 100%;
+            height: 100%;
+            background: var(--ink);
+            color: var(--ivory);
+            font-family: var(--body);
+            -webkit-font-smoothing: antialiased;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            min-height: 100dvh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Full-bleed visual plane */
+        .scene {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background:
+                linear-gradient(180deg, rgba(8, 2, 2, 0.55) 0%, rgba(12, 3, 3, 0.72) 42%, rgba(8, 2, 2, 0.92) 100%),
+                url("./baowen/beijingtu.jpg") center / cover no-repeat;
+            transform: scale(1.04);
+            animation: sceneDrift 18s ease-in-out infinite alternate;
+        }
+
+        .scene::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 55% at 50% 18%, rgba(180, 35, 46, 0.28) 0%, transparent 58%),
+                radial-gradient(ellipse 70% 50% at 50% 100%, rgba(201, 162, 74, 0.12) 0%, transparent 55%),
+                radial-gradient(circle at 12% 70%, rgba(90, 10, 18, 0.45) 0%, transparent 40%),
+                radial-gradient(circle at 88% 35%, rgba(90, 10, 18, 0.35) 0%, transparent 38%);
+            pointer-events: none;
+        }
+
+        .scene::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(201, 162, 74, 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(201, 162, 74, 0.035) 1px, transparent 1px);
+            background-size: 48px 48px;
+            mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+            opacity: 0.55;
+            pointer-events: none;
+        }
+
+        @keyframes sceneDrift {
+            from { transform: scale(1.04) translate3d(0, 0, 0); }
+            to { transform: scale(1.08) translate3d(0, -1.2%, 0); }
+        }
+
+        .glow-orb {
+            position: fixed;
+            width: 42vmax;
+            height: 42vmax;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.22;
+            pointer-events: none;
+            z-index: 1;
+            background: radial-gradient(circle, rgba(180, 35, 46, 0.7) 0%, transparent 70%);
+            animation: orbFloat 10s ease-in-out infinite;
+        }
+
+        .glow-orb.a { top: -18vmax; left: -10vmax; }
+        .glow-orb.b {
+            right: -14vmax;
+            bottom: -16vmax;
+            background: radial-gradient(circle, rgba(201, 162, 74, 0.45) 0%, transparent 70%);
+            animation-delay: -4s;
+            opacity: 0.16;
+        }
+
+        @keyframes orbFloat {
+            0%, 100% { transform: translate3d(0, 0, 0); }
+            50% { transform: translate3d(3%, 4%, 0); }
+        }
+
+        .shell {
+            position: relative;
+            z-index: 2;
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding:
+                max(2rem, env(safe-area-inset-top))
+                max(1.25rem, env(safe-area-inset-right))
+                max(1.5rem, env(safe-area-inset-bottom))
+                max(1.25rem, env(safe-area-inset-left));
+        }
+
+        .portal {
+            width: min(100%, 860px);
+        }
+
+        /* Brand block */
+        .brand {
+            text-align: center;
+            margin-bottom: clamp(2rem, 5vw, 3rem);
+            animation: fadeUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .brand-mark {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 1.15rem;
+            color: var(--gold);
+            opacity: 0.9;
+        }
+
+        .brand-mark .rule {
+            width: clamp(2.5rem, 8vw, 4.5rem);
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--gold-soft), transparent);
+        }
+
+        .brand-mark .diamond {
+            width: 8px;
+            height: 8px;
+            transform: rotate(45deg);
+            border: 1px solid var(--gold-soft);
+            box-shadow: 0 0 12px rgba(201, 162, 74, 0.45);
+            background: linear-gradient(135deg, rgba(243, 223, 160, 0.55), rgba(201, 162, 74, 0.15));
+            animation: diamondPulse 3.6s ease-in-out infinite;
+        }
+
+        @keyframes diamondPulse {
+            0%, 100% { box-shadow: 0 0 8px rgba(201, 162, 74, 0.3); opacity: 0.85; }
+            50% { box-shadow: 0 0 18px rgba(243, 223, 160, 0.7); opacity: 1; }
+        }
+
+        .brand h1 {
+            font-family: var(--display);
+            font-size: clamp(2.4rem, 7.5vw, 3.75rem);
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            line-height: 1.15;
+            text-indent: 0.18em;
+            background: linear-gradient(
+                115deg,
+                #8a6a28 0%,
+                var(--gold-soft) 22%,
+                var(--gold-bright) 48%,
+                var(--gold) 68%,
+                #8a6a28 100%
+            );
+            background-size: 220% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            animation: goldSweep 7s ease-in-out infinite;
+            filter: drop-shadow(0 2px 18px rgba(201, 162, 74, 0.22));
+        }
+
+        @keyframes goldSweep {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .brand .tagline {
+            margin-top: 0.95rem;
+            font-family: var(--display);
+            font-size: clamp(0.95rem, 2.4vw, 1.1rem);
+            letter-spacing: 0.34em;
+            text-indent: 0.34em;
+            color: var(--muted);
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(22px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Selection gateways */
+        .gateways {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        @media (min-width: 700px) {
+            .gateways {
+                grid-template-columns: 1fr 1fr;
+                gap: 1.25rem;
+            }
+        }
+
+        .gateway {
+            --delay: 0ms;
+            position: relative;
+            display: block;
+            min-height: 188px;
+            padding: 1.6rem 1.45rem 1.35rem;
+            text-decoration: none;
+            color: inherit;
+            overflow: hidden;
+            isolation: isolate;
+            border-radius: 4px;
+            background:
+                linear-gradient(160deg, rgba(55, 8, 12, 0.78) 0%, rgba(22, 4, 6, 0.88) 55%, rgba(12, 3, 3, 0.94) 100%);
+            box-shadow:
+                0 18px 40px rgba(0, 0, 0, 0.45),
+                inset 0 0 0 1px rgba(201, 162, 74, 0.28);
+            transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+            animation: fadeUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+            animation-delay: var(--delay);
+        }
+
+        .gateway::before {
+            content: "";
+            position: absolute;
+            inset: 8px;
+            border: 1px solid rgba(201, 162, 74, 0.18);
+            border-radius: 2px;
+            pointer-events: none;
+            z-index: 1;
+            transition: border-color 0.35s ease;
+        }
+
+        .gateway::after {
+            content: attr(data-mark);
+            position: absolute;
+            right: -0.1rem;
+            bottom: -0.55rem;
+            font-family: var(--display);
+            font-size: 7.5rem;
+            line-height: 1;
+            color: rgba(201, 162, 74, 0.07);
+            letter-spacing: 0;
+            pointer-events: none;
+            z-index: 0;
+            transition: color 0.35s ease, transform 0.45s ease;
+        }
+
+        .gateway-sheen {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(
+                115deg,
+                transparent 30%,
+                rgba(243, 223, 160, 0.08) 48%,
+                transparent 62%
+            );
+            transform: translateX(-120%);
+            transition: transform 0.7s ease;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .gateway:hover,
+        .gateway:focus-visible {
+            transform: translateY(-6px);
+            box-shadow:
+                0 26px 50px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(201, 162, 74, 0.35),
+                0 0 40px rgba(180, 35, 46, 0.18);
+            outline: none;
+        }
+
+        .gateway:hover::before,
+        .gateway:focus-visible::before {
+            border-color: rgba(230, 201, 122, 0.42);
+        }
+
+        .gateway:hover::after,
+        .gateway:focus-visible::after {
+            color: rgba(201, 162, 74, 0.12);
+            transform: translate(-4%, -2%);
+        }
+
+        .gateway:hover .gateway-sheen,
+        .gateway:focus-visible .gateway-sheen {
+            transform: translateX(120%);
+        }
+
+        .gateway:active {
+            transform: translateY(-2px) scale(0.995);
+        }
+
+        .gateway-top {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .gateway-index {
+            font-family: var(--display);
+            font-size: 0.78rem;
+            letter-spacing: 0.28em;
+            color: rgba(230, 201, 122, 0.7);
+        }
+
+        .gateway-ornament {
+            width: 42px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--gold-soft));
+        }
+
+        .gateway h2 {
+            position: relative;
+            z-index: 2;
+            font-family: var(--display);
+            font-size: clamp(1.55rem, 3.6vw, 1.85rem);
+            font-weight: 700;
+            letter-spacing: 0.22em;
+            text-indent: 0.22em;
+            color: var(--gold-bright);
+            margin-bottom: 1.7rem;
+        }
+
+        .gateway-enter {
+            position: relative;
+            z-index: 2;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.65rem;
+            margin-top: auto;
+            font-family: var(--display);
+            font-size: 0.86rem;
+            letter-spacing: 0.28em;
+            text-indent: 0.08em;
+            color: var(--gold-soft);
+        }
+
+        .gateway-enter .arrow {
+            display: inline-block;
+            width: 28px;
+            height: 1px;
+            background: currentColor;
+            position: relative;
+            transition: width 0.3s ease, transform 0.3s ease;
+        }
+
+        .gateway-enter .arrow::after {
+            content: "";
+            position: absolute;
+            right: 0;
+            top: 50%;
+            width: 6px;
+            height: 6px;
+            border-right: 1px solid currentColor;
+            border-top: 1px solid currentColor;
+            transform: translateY(-50%) rotate(45deg);
+        }
+
+        .gateway:hover .gateway-enter .arrow,
+        .gateway:focus-visible .gateway-enter .arrow {
+            width: 40px;
+        }
+
+        .foot {
+            margin-top: 1.75rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.85rem;
+            animation: fadeUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.28s both;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .scene,
+            .glow-orb,
+            .brand h1,
+            .brand-mark .diamond,
+            .gateway,
+            .brand,
+            .foot {
+                animation: none !important;
+            }
+            .scene { transform: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="scene" aria-hidden="true"></div>
+    <div class="glow-orb a" aria-hidden="true"></div>
+    <div class="glow-orb b" aria-hidden="true"></div>
+
+    <div class="shell">
+        <main class="portal" role="main">
+            <header class="brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <span class="rule"></span>
+                    <span class="diamond"></span>
+                    <span class="rule"></span>
+                </div>
+                <h1>双端随行录</h1>
+                <p class="tagline">在线双端 · 本地界面 · 云端数据</p>
+            </header>
+
+            <section class="gateways" aria-label="系统选择">
+                <a class="gateway" href="./baowen/index.html" data-system="baowen" data-mark="温" style="--delay: 120ms">
+                    <span class="gateway-sheen" aria-hidden="true"></span>
+                    <div class="gateway-top">
+                        <span class="gateway-index">01 / BAOWEN</span>
+                        <span class="gateway-ornament" aria-hidden="true"></span>
+                    </div>
+                    <h2>保温系统</h2>
+                    <span class="gateway-enter">进入系统 <span class="arrow" aria-hidden="true"></span></span>
+                </a>
+
+                <a class="gateway" href="./gongtian/index.html" data-system="gongtian" data-mark="工" style="--delay: 220ms">
+                    <span class="gateway-sheen" aria-hidden="true"></span>
+                    <div class="gateway-top">
+                        <span class="gateway-index">02 / GONGTIAN</span>
+                        <span class="gateway-ornament" aria-hidden="true"></span>
+                    </div>
+                    <h2>工天系统</h2>
+                    <span class="gateway-enter">进入系统 <span class="arrow" aria-hidden="true"></span></span>
+                </a>
+            </section>
+        </main>
+    </div>
+
+    <script>
+    (function () {
+        // 入口仅作系统选择，不记住自动跳转
+    })();
+    </script>
+</body>
+</html>
