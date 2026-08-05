@@ -164,6 +164,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandler, UIDocumentPickerDele
             window.GONGTIAN_LOCAL_PACKAGE = true;
             window.GONGTIAN_LOCAL_FIRST = false;
             document.documentElement.classList.add('gongtian-native-app');
+            // 仅非空时注入，避免覆盖 config.remote.js / runtime-config.json
             if (\(ins) !== '') { window.INSULATION_API_BASE = \(ins); }
             if (\(gt) !== '') { window.GONGTIAN_REMOTE_API_BASE = \(gt); window.GONGTIAN_API_BASE = \(gt); }
           } catch (e) {}

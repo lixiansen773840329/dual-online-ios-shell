@@ -23,6 +23,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        RuntimeConfig.shared.reload()
         view.backgroundColor = UIColor(red: 0.05, green: 0.01, blue: 0.01, alpha: 1)
         bridge.controller = self
         setupWebView()
@@ -37,8 +38,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let deviceId = DeviceIdProvider.get()
         let flags = NativeBridge.injectAppFlagsJavaScript(
             deviceId: deviceId,
-            insulationApi: AppConfig.insulationApiBase,
-            gongtianApi: AppConfig.gongtianApiBase
+            insulationApi: RuntimeConfig.shared.insulationApiBase,
+            gongtianApi: RuntimeConfig.shared.gongtianApiBase
         )
         let bridgeJs = NativeBridge.injectBridgeJavaScript()
         ucc.addUserScript(WKUserScript(source: bridgeJs, injectionTime: .atDocumentStart, forMainFrameOnly: false))
@@ -127,10 +128,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func loadBundledSplash() -> UIImage? {
-        Bundle.main.url(forResource: "splash", withExtension: "png", subdirectory: "www")
-            .flatMap { UIImage(contentsOfFile: $0.path) }
-        ?? Bundle.main.url(forResource: "beijingtu", withExtension: "png", subdirectory: "www")
-            .flatMap { UIImage(contentsOfFile: $0.path) }
+        let candidates: [URL?] = [
+            Bundle.main.url(forResource: "splash", withExtension: "png"),
+            Bundle.main.url(forResource: "splash", withExtension: "png", subdirectory: "www"),
+            Bundle.main.url(forResource: "beijingtu", withExtension: "png", subdirectory: "www"),
+            Bundle.main.url(forResource: "beijingtu", withExtension: "jpg", subdirectory: "www/baowen"),
+            Bundle.main.url(forResource: "beijingtu", withExtension: "png", subdirectory: "www/baowen"),
+        ]
+        for url in candidates {
+            if let url, let img = UIImage(contentsOfFile: url.path) {
+                return img
+            }
+        }
+        return nil
     }
 
     private func wwwRootURL() -> URL {
@@ -148,7 +158,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func loadStartPage() {
         let root = wwwRootURL()
-        let entry = AppConfig.assetsEntry.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let entry = RuntimeConfig.shared.assetsEntry.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let page = root.appendingPathComponent(entry)
         webView.loadFileURL(page, allowingReadAccessTo: root)
     }
@@ -360,8 +370,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         // file 页补注
         let flags = NativeBridge.injectAppFlagsJavaScript(
             deviceId: DeviceIdProvider.get(),
-            insulationApi: AppConfig.insulationApiBase,
-            gongtianApi: AppConfig.gongtianApiBase
+            insulationApi: RuntimeConfig.shared.insulationApiBase,
+            gongtianApi: RuntimeConfig.shared.gongtianApiBase
         )
         webView.evaluateJavaScript(NativeBridge.injectBridgeJavaScript(), completionHandler: nil)
         webView.evaluateJavaScript(flags, completionHandler: nil)
