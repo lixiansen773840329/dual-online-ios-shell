@@ -34,7 +34,7 @@ jobs:
           mkdir -p tools/cache/DerivedData
           xcodebuild \
             -project DualOnline.xcodeproj \
-            -target DualOnline \
+            -scheme DualOnline \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \

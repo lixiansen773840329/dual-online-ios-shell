@@ -314,9 +314,82 @@ def generate() -> Path:
 """
     PROJ.mkdir(parents=True, exist_ok=True)
     (PROJ / "project.pbxproj").write_text(pbx, encoding="utf-8")
-    # 修正源码路径：pbx 中 DualOnline 组 path=DualOnline，但 www 在上一级
-    # 将 swift 文件放在 DualOnline/ 下，www 使用 SOURCE_ROOT/www —— 已设置
-    # 需要把 group DualOnline 的文件路径对齐：工程根为 ios-app，源码在 DualOnline/
+
+    # Shared scheme so CI can use -scheme DualOnline with -derivedDataPath
+    scheme_dir = PROJ / "xcshareddata" / "xcschemes"
+    scheme_dir.mkdir(parents=True, exist_ok=True)
+    scheme = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1500"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "{target_id}"
+               BuildableName = "DualOnline.app"
+               BlueprintName = "DualOnline"
+               ReferencedContainer = "container:DualOnline.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <LaunchAction
+      buildConfiguration = "Release"
+      selectedDebuggerIdentifier = ""
+      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "{target_id}"
+            BuildableName = "DualOnline.app"
+            BlueprintName = "DualOnline"
+            ReferencedContainer = "container:DualOnline.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "{target_id}"
+            BuildableName = "DualOnline.app"
+            BlueprintName = "DualOnline"
+            ReferencedContainer = "container:DualOnline.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Release">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>
+"""
+    (scheme_dir / "DualOnline.xcscheme").write_text(scheme, encoding="utf-8")
     print(f"已生成 {PROJ}")
     return PROJ
 
