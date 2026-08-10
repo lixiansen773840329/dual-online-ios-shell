@@ -19,8 +19,14 @@ static NSDictionary *WSLoadConfig(void) {
 }
 
 static NSString *WSJSONString(NSString *value) {
-    NSData *data = [NSJSONSerialization dataWithJSONObject:(value ?: @"") options:0 error:nil];
-    return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"\"\"";
+    NSString *raw = value ?: @"";
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[raw] options:0 error:nil];
+    if (!data) return @"\"\"";
+    NSString *arr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (arr.length >= 2) {
+        return [arr substringWithRange:NSMakeRange(1, arr.length - 2)];
+    }
+    return @"\"\"";
 }
 
 static NSString *WSDeviceId(void) {

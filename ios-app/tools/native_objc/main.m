@@ -161,33 +161,64 @@ static NSString *DeviceId(void) {
 
         int sat = (int)lround([self safeTop]);
         int sab = (int)lround([self safeBottom]);
-        NSString *layoutJs = [NSString stringWithFormat:
+
+        /* 所有 frame（含 iframe）：视口锁定 + 按屏宽缩放字号；禁止给内页加 overflow:hidden */
+        NSString *adaptiveJs =
             @"(function(){try{"
+            "function applyScale(){"
+            "var w=Math.min(document.documentElement.clientWidth||9999,window.innerWidth||9999);"
+            "if(!isFinite(w)||w<1)w=screen.width||375;"
+            "var fs=Math.max(12,Math.min(15,w/26));"
+            "document.documentElement.style.fontSize=fs+'px';"
+            "document.documentElement.style.webkitTextSizeAdjust='100%';"
+            "document.documentElement.style.textSizeAdjust='100%';"
             "var m=document.querySelector('meta[name=\"viewport\"]');"
             "if(!m){m=document.createElement('meta');m.name='viewport';(document.head||document.documentElement).appendChild(m);}"
-            "var c=m.getAttribute('content')||'width=device-width, initial-scale=1.0';"
-            "if(c.indexOf('viewport-fit')<0)c=c.replace(/\\s*$/,'')+', viewport-fit=cover';"
-            "m.setAttribute('content',c);"
+            "m.setAttribute('content','width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');"
             "document.documentElement.classList.add('baowen-native-app');"
+            "if(!document.getElementById('baowen-native-adaptive')){"
+            "var css=document.createElement('style');css.id='baowen-native-adaptive';"
+            "css.textContent='html.baowen-native-app{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}'"
+            "+'html.baowen-native-app.baowen-native-scroll body{overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;}'"
+            "+'#dualFloatFab{width:40px!important;height:40px!important;}'"
+            "+'#dualFloatFab .dual-fab-bars{width:14px;gap:4px;}'"
+            "+'#dualFloatPanel{width:min(82vw,280px)!important;border-radius:14px!important;}'"
+            "+'#dualFloatPanel .dual-menu-head{padding:.75rem .9rem .6rem!important;}'"
+            "+'#dualFloatPanel .dual-menu-head h3{font-size:.9rem!important;letter-spacing:.12em!important;}'"
+            "+'#dualFloatPanel button{padding:.68rem .95rem!important;font-size:.86rem!important;gap:.65rem!important;}'"
+            "+'#dualFloatPanel button .ico{width:1.4rem!important;height:1.4rem!important;font-size:.75rem!important;}'"
+            "+'#dualFloatRestore{width:14px!important;height:44px!important;}';"
+            "(document.head||document.documentElement).appendChild(css);}"
+            "if(!document.querySelector('.shell'))document.documentElement.classList.add('baowen-native-scroll');"
+            "else document.documentElement.classList.remove('baowen-native-scroll');"
+            "}"
+            "applyScale();"
+            "window.addEventListener('resize',applyScale,{passive:true});"
+            "window.addEventListener('orientationchange',function(){setTimeout(applyScale,80);});"
+            "}catch(e){}})();";
+
+        /* 仅主 frame（shell）：安全区，不要 overflow:hidden 到 iframe */
+        NSString *shellLayoutJs = [NSString stringWithFormat:
+            @"(function(){try{"
             "document.documentElement.style.setProperty('--sat','%dpx');"
             "document.documentElement.style.setProperty('--sab','%dpx');"
             "if(!document.getElementById('baowen-native-safearea')){"
             "var css=document.createElement('style');css.id='baowen-native-safearea';"
-            "css.textContent='html.baowen-native-app,html.baowen-native-app body{height:100%%;min-height:100%%;min-height:-webkit-fill-available;overflow:hidden;background:#0a0a0a;}'"
-            "+'html.baowen-native-app .shell{height:100%%;min-height:100%%;min-height:-webkit-fill-available;}'"
+            "css.textContent='html.baowen-native-app .shell{height:100%%;min-height:100%%;min-height:-webkit-fill-available;}'"
             "+'html.baowen-native-app .nav-container{padding-top:env(safe-area-inset-top,var(--sat,0px));height:auto;'"
-            "+'min-height:calc(64px + env(safe-area-inset-top,var(--sat,0px)));box-sizing:border-box;}'"
-            "+'html.baowen-native-app .tab-panels{padding-bottom:env(safe-area-inset-bottom,var(--sab,0px));}'"
+            "+'min-height:calc(52px + env(safe-area-inset-top,var(--sat,0px)));box-sizing:border-box;}'"
+            "+'html.baowen-native-app .tab-panels{padding-bottom:env(safe-area-inset-bottom,var(--sab,0px));box-sizing:border-box;}'"
             "+'html.baowen-native-app .auth-wrap{min-height:-webkit-fill-available;'"
-            "+'padding-top:calc(2rem + env(safe-area-inset-top,var(--sat,0px)));'"
-            "+'padding-bottom:calc(2rem + env(safe-area-inset-bottom,var(--sab,0px)));}';"
+            "+'padding-top:calc(1.25rem + env(safe-area-inset-top,var(--sat,0px)));'"
+            "+'padding-bottom:calc(1.25rem + env(safe-area-inset-bottom,var(--sab,0px)));}';"
             "(document.head||document.documentElement).appendChild(css);}"
             "}catch(e){}})();", sat, sab];
 
         WKUserContentController *ucc = config.userContentController;
         [ucc addUserScript:[[WKUserScript alloc] initWithSource:bridgeJs injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
         [ucc addUserScript:[[WKUserScript alloc] initWithSource:flags injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
-        [ucc addUserScript:[[WKUserScript alloc] initWithSource:layoutJs injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
+        [ucc addUserScript:[[WKUserScript alloc] initWithSource:adaptiveJs injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
+        [ucc addUserScript:[[WKUserScript alloc] initWithSource:shellLayoutJs injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
         [ucc addScriptMessageHandler:self name:@"InsulationNativeBridge"];
 
         UIView *host = self.rootVC.view;
@@ -198,10 +229,15 @@ static NSString *DeviceId(void) {
         self.webView.opaque = NO;
         self.webView.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.04 alpha:1];
         self.webView.scrollView.backgroundColor = self.webView.backgroundColor;
-        self.webView.scrollView.bounces = YES;
+        /* shell 自身不滚动，交给 iframe 内页滚动，避免手势被外层抢走 */
+        self.webView.scrollView.scrollEnabled = NO;
+        self.webView.scrollView.bounces = NO;
         self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         self.webView.scrollView.contentInset = UIEdgeInsetsZero;
-        self.webView.allowsBackForwardNavigationGestures = YES;
+        if (@available(iOS 11.0, *)) {
+            self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        }
+        self.webView.allowsBackForwardNavigationGestures = NO;
         [host addSubview:self.webView];
 
         NSString *wwwDir = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"www"];
@@ -225,7 +261,11 @@ static NSString *DeviceId(void) {
     NSString *js = [NSString stringWithFormat:
         @"document.documentElement.style.setProperty('--sat','%dpx');"
         "document.documentElement.style.setProperty('--sab','%dpx');"
-        "document.documentElement.classList.add('baowen-native-app');", sat, sab];
+        "document.documentElement.classList.add('baowen-native-app');"
+        "try{var w=Math.min(document.documentElement.clientWidth||9999,window.innerWidth||9999);"
+        "if(!isFinite(w)||w<1)w=screen.width||375;"
+        "document.documentElement.style.fontSize=Math.max(12,Math.min(15,w/26))+'px';}catch(e){}",
+        sat, sab];
     [webView evaluateJavaScript:js completionHandler:nil];
 }
 
