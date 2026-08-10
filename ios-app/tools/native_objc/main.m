@@ -8,7 +8,7 @@
 - (BOOL)prefersStatusBarHidden { return NO; }
 @end
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler>
+@interface AppDelegate : UIResponder <UIApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate>
 @property (strong, nonatomic) UIWindow *window;
 @property (strong, nonatomic) WKWebView *webView;
 @property (strong, nonatomic) RootViewController *rootVC;
@@ -113,8 +113,9 @@ static NSString *DeviceId(void) {
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     if (@available(iOS 13.0, *)) self.window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     self.rootVC = [RootViewController new];
-    self.rootVC.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.04 alpha:1];
-    self.window.backgroundColor = self.rootVC.view.backgroundColor;
+    UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
+    self.rootVC.view.backgroundColor = wine;
+    self.window.backgroundColor = wine;
     self.window.rootViewController = self.rootVC;
     [self.window makeKeyAndVisible];
     BOOL minimal = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"BaoWenMinimalUI"] boolValue];
@@ -166,7 +167,10 @@ static NSString *DeviceId(void) {
             "openApplicationPermissionSettings:function(){call('openApplicationPermissionSettings');},"
             "pickDailyReminderSound:function(){call('pickDailyReminderSound');},"
             "requestNotificationPermission:function(){call('requestNotificationPermission');},"
-            "openExternalUrl:function(u){call('openExternalUrl',u||'');},"
+            "openExternalUrl:function(u){"
+            "try{if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.InsulationNativeBridge){"
+            "window.webkit.messageHandlers.InsulationNativeBridge.postMessage({method:'openExternalUrl',args:[u||'']});return;}}catch(e){}"
+            "call('openExternalUrl',u||'');},"
             "goAppHome:function(s){call('goAppHome',s||'');},"
             "exitApp:function(){call('exitApp');}};})();";
 
@@ -188,74 +192,92 @@ static NSString *DeviceId(void) {
         int sat = (int)lround([self safeTop]);
         int sab = (int)lround([self safeBottom]);
 
-        /* 所有 frame（含 iframe）：视口锁定 + 按屏宽缩放字号；禁止给内页加 overflow:hidden */
+        /* 所有 frame：视口 + 红底铺满；资费标签改实色块；勿破坏内页滚动 */
         NSString *adaptiveJs =
             @"(function(){try{"
             "function applyScale(){"
-            "var w=Math.min(document.documentElement.clientWidth||9999,window.innerWidth||9999);"
-            "if(!isFinite(w)||w<1)w=screen.width||375;"
-            "var fs=Math.max(12,Math.min(15,w/26));"
-            "document.documentElement.style.fontSize=fs+'px';"
-            "document.documentElement.style.webkitTextSizeAdjust='100%';"
-            "document.documentElement.style.textSizeAdjust='100%';"
             "var m=document.querySelector('meta[name=\"viewport\"]');"
             "if(!m){m=document.createElement('meta');m.name='viewport';(document.head||document.documentElement).appendChild(m);}"
             "m.setAttribute('content','width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');"
             "document.documentElement.classList.add('baowen-native-app');"
+            "document.documentElement.style.webkitTextSizeAdjust='100%';"
             "if(!document.getElementById('baowen-native-adaptive')){"
             "var css=document.createElement('style');css.id='baowen-native-adaptive';"
-            "css.textContent='html.baowen-native-app{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}'"
-            "+'html.baowen-native-app.baowen-native-scroll body{overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;}'"
-            /* 悬浮球：缩小、降 z-index，避免挡住支付/弹窗 */
+            "css.textContent="
+            /* 铺满：用酒红底，避免顶底露出纯黑 */
+            "'html.baowen-native-app,html.baowen-native-app body{background-color:#5c0000!important;"
+            "+'-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}'"
+            "+'html.baowen-native-app body.page-module::before{background-color:#5c0000!important;"
+            "+'background-image:url(\"./beijingtu.jpg\"),url(\"../beijingtu.jpg\"),linear-gradient(180deg,#8B0000,#4a0000)!important;"
+            "+'background-size:cover!important;background-position:center!important;position:absolute!important;"
+            "+'top:0;left:0;right:0;bottom:0;min-height:100%!important;}'"
+            "+'html.baowen-native-app.baowen-native-scroll body{overflow-x:hidden!important;overflow-y:auto!important;"
+            "+'-webkit-overflow-scrolling:touch;min-height:100%!important;}'"
+            "+'html.baowen-native-app body.tab-embedded{padding-bottom:0!important;}'"
+            /* 悬浮球 */
             "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
             "+'#dualFloatMask,#dualFloatPanel,#dualExitConfirm,#dualFloatTip{z-index:100050!important;}'"
+            "+'.insulation-modal-root,.insulation-guard-overlay{z-index:200000!important;}'"
             "+'#dualFloatFab{width:40px!important;height:40px!important;}'"
-            "+'#dualFloatFab .dual-fab-bars{width:14px;gap:4px;}'"
-            "+'#dualFloatPanel{width:min(82vw,280px)!important;border-radius:14px!important;}'"
-            "+'#dualFloatPanel .dual-menu-head{padding:.75rem .9rem .6rem!important;}'"
-            "+'#dualFloatPanel .dual-menu-head h3{font-size:.9rem!important;letter-spacing:.12em!important;}'"
-            "+'#dualFloatPanel button{padding:.68rem .95rem!important;font-size:.86rem!important;gap:.65rem!important;}'"
-            "+'#dualFloatPanel button .ico{width:1.4rem!important;height:1.4rem!important;font-size:.75rem!important;}'"
-            "+'#dualFloatRestore{width:14px!important;height:44px!important;}'"
-            /* 资费标签：固定高度 + 强制红/金底色，避免 WK 下发灰发虚 */
-            "+'html.baowen-native-app .notice-price-tags{--ph:96px;height:96px;}'"
-            "+'html.baowen-native-app .notice-price-tag{pointer-events:auto!important;-webkit-tap-highlight-color:transparent;}'"
-            "+'html.baowen-native-app .notice-price-tag-annual .notice-price-tag-bg{background:linear-gradient(155deg,#8b0000 0%,#a01818 45%,#6b0000 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-lifetime .notice-price-tag-bg{background:linear-gradient(205deg,#d4af37 0%,#b8860b 40%,#8b0000 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-annual.is-selected .notice-price-tag-bg{background:linear-gradient(155deg,#1a5f6e 0%,#0e3d4a 42%,#082830 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-lifetime.is-selected .notice-price-tag-bg{background:linear-gradient(205deg,#f5d488 0%,#c9a227 38%,#8a6a12 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-label{color:rgba(255,255,255,.85)!important;}'"
+            /* 资费标签：关掉撕边 SVG/clip-path，改圆角实色，对齐安卓观感 */
+            "+'html.baowen-native-app .notice-price-tags{--ph:88px;height:88px;gap:0.55rem;}'"
+            "+'html.baowen-native-app .notice-price-tear{display:none!important;}'"
+            "+'html.baowen-native-app .notice-price-tag{pointer-events:auto!important;filter:none!important;"
+            "+'opacity:1!important;transform:none!important;-webkit-tap-highlight-color:transparent;}'"
+            "+'html.baowen-native-app .notice-price-tag-bg{clip-path:none!important;-webkit-clip-path:none!important;"
+            "+'border-radius:0.75rem!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-bg::before,html.baowen-native-app .notice-price-tag-bg::after{"
+            "+'clip-path:none!important;border-radius:0.75rem!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-annual .notice-price-tag-bg{"
+            "+'background:linear-gradient(155deg,#7a0a0a 0%,#8B0000 45%,#5a0000 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-lifetime .notice-price-tag-bg{"
+            "+'background:linear-gradient(205deg,#3a2a08 0%,#8B0000 55%,#5a0000 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-annual.is-selected .notice-price-tag-bg{"
+            "+'background:linear-gradient(155deg,#1a5f6e 0%,#0e3d4a 42%,#082830 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-lifetime.is-selected .notice-price-tag-bg{"
+            "+'background:linear-gradient(205deg,#f5d488 0%,#c9a227 40%,#8a6a12 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-annual .notice-price-tag-content,"
+            "+'html.baowen-native-app .notice-price-tag-lifetime .notice-price-tag-content{padding:0 0.5rem!important;}'"
+            "+'html.baowen-native-app .notice-price-label{color:rgba(255,255,255,.78)!important;}'"
             "+'html.baowen-native-app .notice-price-value{color:#f5d488!important;}'"
+            "+'html.baowen-native-app .notice-price-tag.is-selected{transform:translateY(-3px)!important;"
+            "+'filter:drop-shadow(0 8px 18px rgba(0,0,0,.45))!important;}'"
             "+'html.baowen-native-app .notice-price-tag.is-selected .notice-price-value{color:#fff8e7!important;}'"
-            "+'html.baowen-native-app .notice-pay-btn{pointer-events:auto!important;position:relative;z-index:6;}'"
-            "+'html.baowen-native-app .notice-contact{pointer-events:auto!important;cursor:pointer;padding:.65rem .85rem;border-radius:.65rem;"
-            "+'border:1px solid rgba(212,175,55,.35);background:rgba(0,0,0,.28);color:rgba(255,255,255,.85)!important;}'"
-            "+'html.baowen-native-app .notice-contact-id{color:#f5d488!important;text-decoration:underline;}'"
-            "+'html.baowen-native-app .notice-board{margin-bottom:0.5rem!important;}'"
-            "+'html.baowen-native-app.baowen-native-scroll body.tab-embedded{padding-bottom:8px!important;min-height:0!important;}';"
+            "+'html.baowen-native-app .notice-pay-btn{pointer-events:auto!important;position:relative;z-index:8;"
+            "+'-webkit-appearance:none;touch-action:manipulation;}'"
+            "+'html.baowen-native-app .notice-contact{pointer-events:auto!important;}'"
+            "+'html.baowen-native-app .notice-board{margin-bottom:0.35rem!important;}'"
+            /* 登录页：固定壳，避免键盘顶起整页 */
+            "+'html.baowen-native-login body{position:fixed!important;inset:0!important;"
+            "+'width:100%!important;height:100%!important;overflow:hidden!important;}'"
+            "+'html.baowen-native-app .auth-wrap{height:100%!important;max-height:100%!important;overflow-y:auto!important;"
+            "+'-webkit-overflow-scrolling:touch;padding-top:calc(1rem + env(safe-area-inset-top,var(--sat,0px)))!important;"
+            "+'padding-bottom:calc(1rem + env(safe-area-inset-bottom,var(--sab,0px)))!important;box-sizing:border-box!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
             "if(!document.querySelector('.shell'))document.documentElement.classList.add('baowen-native-scroll');"
             "else document.documentElement.classList.remove('baowen-native-scroll');"
+            "if(document.querySelector('.auth-wrap'))document.documentElement.classList.add('baowen-native-login');"
+            "else document.documentElement.classList.remove('baowen-native-login');"
+            /* 禁用撕边算法，避免 WK 下白线/错形 */
+            "window.updatePriceTagTornEdges=function(){};"
             "}"
             "applyScale();"
             "window.addEventListener('resize',applyScale,{passive:true});"
-            "window.addEventListener('orientationchange',function(){setTimeout(applyScale,80);});"
             "}catch(e){}})();";
 
-        /* 仅主 frame（shell）：顶栏安全区；底部不再垫空白（由内页自己滚动） */
+        /* 仅主 frame：顶栏安全区；内容区贴底无黑边 */
         NSString *shellLayoutJs = [NSString stringWithFormat:
             @"(function(){try{"
             "document.documentElement.style.setProperty('--sat','%dpx');"
             "document.documentElement.style.setProperty('--sab','%dpx');"
             "if(!document.getElementById('baowen-native-safearea')){"
             "var css=document.createElement('style');css.id='baowen-native-safearea';"
-            "css.textContent='html.baowen-native-app .shell{height:100%%;min-height:100%%;min-height:-webkit-fill-available;}'"
+            "css.textContent='html.baowen-native-app,html.baowen-native-app body{background:#5c0000!important;}'"
+            "+'html.baowen-native-app .shell{height:100%%;min-height:100%%;min-height:-webkit-fill-available;background:#5c0000!important;}'"
             "+'html.baowen-native-app .nav-container{padding-top:env(safe-area-inset-top,var(--sat,0px));height:auto;'"
             "+'min-height:calc(52px + env(safe-area-inset-top,var(--sat,0px)));box-sizing:border-box;}'"
-            "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;box-sizing:border-box;}'"
-            "+'html.baowen-native-app .auth-wrap{min-height:-webkit-fill-available;'"
-            "+'padding-top:calc(1.25rem + env(safe-area-inset-top,var(--sat,0px)));'"
-            "+'padding-bottom:calc(1.25rem + env(safe-area-inset-bottom,var(--sab,0px)));}';"
+            "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;background:#5c0000!important;}'"
+            "+'html.baowen-native-app .tab-panel{background:#5c0000!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
             "}catch(e){}})();", sat, sab];
 
@@ -272,18 +294,24 @@ static NSString *DeviceId(void) {
         self.webView.UIDelegate = self;
         self.webView.navigationDelegate = self;
         self.webView.opaque = NO;
-        self.webView.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.04 alpha:1];
-        self.webView.scrollView.backgroundColor = self.webView.backgroundColor;
+        UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
+        self.webView.backgroundColor = wine;
+        self.webView.scrollView.backgroundColor = wine;
         /* shell 自身不滚动，交给 iframe 内页滚动，避免手势被外层抢走 */
         self.webView.scrollView.scrollEnabled = NO;
         self.webView.scrollView.bounces = NO;
+        self.webView.scrollView.delegate = self;
         self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         self.webView.scrollView.contentInset = UIEdgeInsetsZero;
+        self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
         if (@available(iOS 11.0, *)) {
             self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         }
         self.webView.allowsBackForwardNavigationGestures = NO;
         [host addSubview:self.webView];
+
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onKeyboardFrameChange:) name:UIKeyboardWillChangeFrameNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onKeyboardFrameChange:) name:UIKeyboardWillHideNotification object:nil];
 
         NSString *wwwDir = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"www"];
         NSString *pagePath = [wwwDir stringByAppendingPathComponent:entry];
@@ -307,12 +335,32 @@ static NSString *DeviceId(void) {
         @"document.documentElement.style.setProperty('--sat','%dpx');"
         "document.documentElement.style.setProperty('--sab','%dpx');"
         "document.documentElement.classList.add('baowen-native-app');"
-        "try{var w=Math.min(document.documentElement.clientWidth||9999,window.innerWidth||9999);"
-        "if(!isFinite(w)||w<1)w=screen.width||375;"
-        "document.documentElement.style.fontSize=Math.max(12,Math.min(15,w/26))+'px';"
-        "if(typeof updatePriceTagTornEdges==='function')updatePriceTagTornEdges();}catch(e){}",
+        "window.updatePriceTagTornEdges=function(){};"
+        "try{document.querySelectorAll('.notice-price-tag-bg').forEach(function(el){el.style.clipPath='none';el.style.webkitClipPath='none';});"
+        "document.querySelectorAll('.notice-price-tear').forEach(function(el){el.style.display='none';});}catch(e){}",
         sat, sab];
     [webView evaluateJavaScript:js completionHandler:nil];
+    [self lockWebScroll];
+}
+
+- (void)lockWebScroll {
+    if (!self.webView) return;
+    self.webView.scrollView.contentInset = UIEdgeInsetsZero;
+    self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
+    if (!CGPointEqualToPoint(self.webView.scrollView.contentOffset, CGPointZero)) {
+        [self.webView.scrollView setContentOffset:CGPointZero animated:NO];
+    }
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (scrollView == self.webView.scrollView && fabs(scrollView.contentOffset.y) > 0.5) {
+        [scrollView setContentOffset:CGPointZero animated:NO];
+    }
+}
+
+- (void)onKeyboardFrameChange:(NSNotification *)note {
+    (void)note;
+    dispatch_async(dispatch_get_main_queue(), ^{ [self lockWebScroll]; });
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
