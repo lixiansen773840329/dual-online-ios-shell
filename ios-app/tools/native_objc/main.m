@@ -323,9 +323,11 @@ static NSString *DeviceId(void) {
             "+'opacity:1!important;visibility:visible!important;display:block!important;pointer-events:auto!important;}'"
             "+'html.gongtian-native-app,html.gongtian-native-app body{overscroll-behavior:none!important;overscroll-behavior-y:none!important;}'"
             "+'html.gongtian-native-app #pageFixedBg,html.gongtian-native-app.page-bg-active #pageFixedBg.is-painted{' "
-            "+'position:fixed!important;inset:0!important;background-size:100% auto!important;' "
-            "+'background-position:center top!important;background-repeat:no-repeat!important;transform:none!important;}'"
+            "+'position:fixed!important;inset:0!important;display:block!important;opacity:1!important;visibility:visible!important;' "
+            "+'background-size:cover!important;background-position:center center!important;background-repeat:no-repeat!important;' "
+            "+'z-index:-1!important;pointer-events:none!important;transform:none!important;}'"
             "+'html.gongtian-native-app #mainNav{position:sticky!important;top:0!important;z-index:500!important;}'"
+            "+'#dualFloatFab,#dualFloatRestore{display:flex!important;opacity:1!important;visibility:visible!important;z-index:9000!important;}'"
             "+'html.baowen-native-app body.tab-embedded{padding-bottom:0!important;}'"
             /* 悬浮球 */
             "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
