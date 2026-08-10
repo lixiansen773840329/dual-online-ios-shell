@@ -55,7 +55,7 @@ static NSString *DeviceId(void) {
         UIViewController *vc = [UIViewController new];
         vc.view.backgroundColor = [UIColor colorWithRed:0.75 green:0.05 blue:0.05 alpha:1.0];
 
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectInset(vc.view.bounds, 24, 80)];
+        UILabel *label = [[UILabel alloc] initWithFrame:vc.view.bounds];
         label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         label.textAlignment = NSTextAlignmentCenter;
         label.numberOfLines = 0;
