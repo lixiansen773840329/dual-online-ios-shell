@@ -17,7 +17,6 @@ xcrun -sdk iphoneos clang \
   -miphoneos-version-min="$MIN" \
   -fobjc-arc -O2 \
   -framework UIKit -framework WebKit -framework Foundation \
-  -Wl,-no_fix_chained_fixups \
   -o "$CACHE/WebShell" \
   "$ROOT/main.m"
 codesign --remove-signature "$CACHE/WebShell" 2>/dev/null || true
@@ -29,7 +28,6 @@ xcrun -sdk iphoneos clang \
   -fobjc-arc -O2 -dynamiclib \
   -install_name "@executable_path/WebShell.dylib" \
   -framework UIKit -framework WebKit -framework Foundation \
-  -Wl,-no_fix_chained_fixups \
   -o "$CACHE/WebShell.dylib" \
   "$ROOT/WebShellDylib.m"
 codesign --remove-signature "$CACHE/WebShell.dylib" 2>/dev/null || true
