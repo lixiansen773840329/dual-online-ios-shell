@@ -321,6 +321,11 @@ static NSString *DeviceId(void) {
             "+'html.gongtian-native-app.page-bg-pending #mainNav,' "
             "+'html.gongtian-native-app.page-bg-pending .marquee-bar{' "
             "+'opacity:1!important;visibility:visible!important;display:block!important;pointer-events:auto!important;}'"
+            "+'html.gongtian-native-app,html.gongtian-native-app body{overscroll-behavior:none!important;overscroll-behavior-y:none!important;}'"
+            "+'html.gongtian-native-app #pageFixedBg,html.gongtian-native-app.page-bg-active #pageFixedBg.is-painted{' "
+            "+'position:fixed!important;inset:0!important;background-size:100% auto!important;' "
+            "+'background-position:center top!important;background-repeat:no-repeat!important;transform:none!important;}'"
+            "+'html.gongtian-native-app #mainNav{position:sticky!important;top:0!important;z-index:500!important;}'"
             "+'html.baowen-native-app body.tab-embedded{padding-bottom:0!important;}'"
             /* 悬浮球 */
             "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
@@ -474,9 +479,11 @@ static NSString *DeviceId(void) {
         UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
         self.webView.backgroundColor = wine;
         self.webView.scrollView.backgroundColor = wine;
-        /* 默认允许滚动；baowen/shell、gongtian/app-shell 再关掉（交给 iframe） */
+        /* 默认允许滚动；全程禁橡皮筋，避免顶底被拉开 */
         self.webView.scrollView.scrollEnabled = YES;
-        self.webView.scrollView.bounces = YES;
+        self.webView.scrollView.bounces = NO;
+        self.webView.scrollView.alwaysBounceVertical = NO;
+        self.webView.scrollView.alwaysBounceHorizontal = NO;
         self.webView.scrollView.delaysContentTouches = NO;
         self.webView.scrollView.canCancelContentTouches = YES;
         self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
@@ -515,7 +522,10 @@ static NSString *DeviceId(void) {
     BOOL isGtShell = [path containsString:@"/gongtian/app-shell.html"] || [abs containsString:@"/gongtian/app-shell.html"];
     BOOL lockScroll = isBaowenShell || isGtShell;
     self.webView.scrollView.scrollEnabled = !lockScroll;
-    self.webView.scrollView.bounces = !lockScroll;
+    /* 选择页/工天业务页都禁止下拉回弹，顶底不被拉开 */
+    self.webView.scrollView.bounces = NO;
+    self.webView.scrollView.alwaysBounceVertical = NO;
+    self.webView.scrollView.alwaysBounceHorizontal = NO;
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
