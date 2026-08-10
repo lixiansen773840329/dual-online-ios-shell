@@ -1,0 +1,28 @@
+﻿name: Build ObjC WebShell
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios-app/tools/native_objc/**"
+      - ".github/workflows/build-webshell.yml"
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile ObjC WebShell (arm64, no Swift)
+        run: |
+          chmod +x ios-app/tools/native_objc/build_on_mac.sh
+          ios-app/tools/native_objc/build_on_mac.sh
+          file ios-app/tools/cache/WebShell
+          # prove no Swift linkage
+          otool -L ios-app/tools/cache/WebShell | tee /tmp/webshell-libs.txt
+          if grep -q libswift /tmp/webshell-libs.txt; then
+            echo "ERROR: WebShell unexpectedly links Swift"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WebShell
+          path: ios-app/tools/cache/WebShell
+          if-no-files-found: error
