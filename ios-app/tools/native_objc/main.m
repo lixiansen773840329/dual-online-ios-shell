@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
+#import <SafariServices/SafariServices.h>
 
 @interface RootViewController : UIViewController
 @property (nonatomic, copy) void (^onLayout)(void);
@@ -125,13 +126,23 @@ static NSString *DeviceId(void) {
     }
     if (!url) return;
     dispatch_async(dispatch_get_main_queue(), ^{
-        /* 支付页用系统打开更稳：file:// 内嵌 WebView 跳 https 收银台常被拦 */
-        [UIApplication.sharedApplication openURL:url options:@{} completionHandler:^(BOOL success) {
-            if (!success) {
-                NSString *scheme = (url.scheme ?: @"").lowercaseString;
-                if ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) {
-                    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+        NSString *scheme = (url.scheme ?: @"").lowercaseString;
+        /* http(s) 收银台：优先 SFSafariViewController，保证用户能看到跳转 */
+        if ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) {
+            if (@available(iOS 9.0, *)) {
+                SFSafariViewController *svc = [[SFSafariViewController alloc] initWithURL:url];
+                UIViewController *presenter = self.rootVC;
+                while (presenter.presentedViewController) {
+                    presenter = presenter.presentedViewController;
                 }
+                [presenter presentViewController:svc animated:YES completion:nil];
+                return;
+            }
+        }
+        /* 支付宝/微信/QQ 等自定义 scheme：交给系统唤起 App */
+        [UIApplication.sharedApplication openURL:url options:@{} completionHandler:^(BOOL success) {
+            if (!success && ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) {
+                [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
             }
         }];
     });
@@ -235,7 +246,7 @@ static NSString *DeviceId(void) {
         int sat = (int)lround([self safeTop]);
         int sab = (int)lround([self safeBottom]);
 
-        /* 所有 frame：视口 + 红底铺满；资费标签改实色块；勿破坏内页滚动 */
+        /* 所有 frame：视口 + 红底铺满；保留资费锯齿；去掉蓝色点按高亮 */
         NSString *adaptiveJs =
             @"(function(){try{"
             "function applyScale(){"
@@ -263,32 +274,14 @@ static NSString *DeviceId(void) {
             "+'#dualFloatMask,#dualFloatPanel,#dualExitConfirm,#dualFloatTip{z-index:100050!important;}'"
             "+'.insulation-modal-root,.insulation-guard-overlay{z-index:200000!important;}'"
             "+'#dualFloatFab{width:40px!important;height:40px!important;}'"
-            /* 资费标签：关掉撕边 SVG/clip-path，改圆角实色，对齐安卓观感 */
-            "+'html.baowen-native-app .notice-price-tags{--ph:88px;height:88px;gap:0.55rem;}'"
-            "+'html.baowen-native-app .notice-price-tear{display:none!important;}'"
-            "+'html.baowen-native-app .notice-price-tag{pointer-events:auto!important;filter:none!important;"
-            "+'opacity:1!important;transform:none!important;-webkit-tap-highlight-color:transparent;}'"
-            "+'html.baowen-native-app .notice-price-tag-bg{clip-path:none!important;-webkit-clip-path:none!important;"
-            "+'border-radius:0.75rem!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-bg::before,html.baowen-native-app .notice-price-tag-bg::after{"
-            "+'clip-path:none!important;border-radius:0.75rem!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-annual .notice-price-tag-bg{"
-            "+'background:linear-gradient(155deg,#7a0a0a 0%,#8B0000 45%,#5a0000 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-lifetime .notice-price-tag-bg{"
-            "+'background:linear-gradient(205deg,#3a2a08 0%,#8B0000 55%,#5a0000 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-annual.is-selected .notice-price-tag-bg{"
-            "+'background:linear-gradient(155deg,#1a5f6e 0%,#0e3d4a 42%,#082830 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-lifetime.is-selected .notice-price-tag-bg{"
-            "+'background:linear-gradient(205deg,#f5d488 0%,#c9a227 40%,#8a6a12 100%)!important;}'"
-            "+'html.baowen-native-app .notice-price-tag-annual .notice-price-tag-content,"
-            "+'html.baowen-native-app .notice-price-tag-lifetime .notice-price-tag-content{padding:0 0.5rem!important;}'"
-            "+'html.baowen-native-app .notice-price-label{color:rgba(255,255,255,.78)!important;}'"
-            "+'html.baowen-native-app .notice-price-value{color:#f5d488!important;}'"
-            "+'html.baowen-native-app .notice-price-tag.is-selected{transform:translateY(-3px)!important;"
-            "+'filter:drop-shadow(0 8px 18px rgba(0,0,0,.45))!important;}'"
-            "+'html.baowen-native-app .notice-price-tag.is-selected .notice-price-value{color:#fff8e7!important;}'"
+            /* 资费/支付：可点 + 去掉 iOS 蓝色 tap 高亮；不禁用撕边 */
+            "+'html.baowen-native-app .notice-price-tag,html.baowen-native-app .notice-price-tag *,'"
+            "+'html.baowen-native-app .notice-pay-btn,html.baowen-native-app .notice-pay-btn *{' "
+            "+'-webkit-tap-highlight-color:transparent!important;outline:none!important;' "
+            "+'-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;}'"
+            "+'html.baowen-native-app .notice-price-tag{pointer-events:auto!important;}'"
             "+'html.baowen-native-app .notice-pay-btn{pointer-events:auto!important;position:relative;z-index:8;"
-            "+'-webkit-appearance:none;touch-action:manipulation;}'"
+            "+'-webkit-appearance:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent!important;}'"
             "+'html.baowen-native-app .notice-contact{pointer-events:auto!important;}'"
             "+'html.baowen-native-app .notice-board{margin-bottom:0.35rem!important;}'"
             /* 登录页：固定壳，避免键盘顶起整页 */
@@ -302,14 +295,12 @@ static NSString *DeviceId(void) {
             "else document.documentElement.classList.remove('baowen-native-scroll');"
             "if(document.querySelector('.auth-wrap'))document.documentElement.classList.add('baowen-native-login');"
             "else document.documentElement.classList.remove('baowen-native-login');"
-            /* 禁用撕边算法，避免 WK 下白线/错形 */
-            "window.updatePriceTagTornEdges=function(){};"
             "}"
             "applyScale();"
             "window.addEventListener('resize',applyScale,{passive:true});"
             "}catch(e){}})();";
 
-        /* 仅主 frame：顶栏安全区；内容区贴底无黑边 */
+        /* 仅主 frame：顶栏安全区 + iframe 支付 URL 中转 */
         NSString *shellLayoutJs = [NSString stringWithFormat:
             @"(function(){try{"
             "document.documentElement.style.setProperty('--sat','%dpx');"
@@ -324,6 +315,15 @@ static NSString *DeviceId(void) {
             "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;background:#5c0000!important;flex:1;min-height:0;}'"
             "+'html.baowen-native-app .tab-panel{background:#5c0000!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
+            "if(!window.__baowenOpenUrlRelay){window.__baowenOpenUrlRelay=true;"
+            "window.addEventListener('message',function(ev){try{"
+            "var d=ev&&ev.data;if(!d||d.type!=='baowen-native-open-url'||!d.url)return;"
+            "var u=String(d.url);"
+            "if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.InsulationNativeBridge){"
+            "window.webkit.messageHandlers.InsulationNativeBridge.postMessage({method:'openExternalUrl',args:[u]});return;}"
+            "if(window.InsulationNativeBridge&&typeof window.InsulationNativeBridge.openExternalUrl==='function'){"
+            "window.InsulationNativeBridge.openExternalUrl(u);}"
+            "}catch(e){}},false);}"
             "}catch(e){}})();", sat, sab];
 
         WKUserContentController *ucc = config.userContentController;
@@ -382,9 +382,7 @@ static NSString *DeviceId(void) {
         @"document.documentElement.style.setProperty('--sat','%dpx');"
         "document.documentElement.style.setProperty('--sab','%dpx');"
         "document.documentElement.classList.add('baowen-native-app');"
-        "window.updatePriceTagTornEdges=function(){};"
-        "try{document.querySelectorAll('.notice-price-tag-bg').forEach(function(el){el.style.clipPath='none';el.style.webkitClipPath='none';});"
-        "document.querySelectorAll('.notice-price-tear').forEach(function(el){el.style.display='none';});}catch(e){}",
+        "try{if(typeof window.updatePriceTagTornEdges==='function')window.updatePriceTagTornEdges();}catch(e){}",
         sat, sab];
     [webView evaluateJavaScript:js completionHandler:nil];
     self.webView.scrollView.contentInset = UIEdgeInsetsZero;
