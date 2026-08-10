@@ -31,8 +31,15 @@ static NSDictionary *LoadRuntimeConfig(void) {
 }
 
 static NSString *JSONString(NSString *value) {
-    NSData *data = [NSJSONSerialization dataWithJSONObject:(value ?: @"") options:0 error:nil];
-    return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"\"\"";
+    // NSJSONSerialization 顶层不能是 NSString，需包一层数组再剥开
+    NSString *raw = value ?: @"";
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[raw] options:0 error:nil];
+    if (!data) return @"\"\"";
+    NSString *arr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (arr.length >= 2) {
+        return [arr substringWithRange:NSMakeRange(1, arr.length - 2)];
+    }
+    return @"\"\"";
 }
 
 static NSString *DeviceId(void) {
