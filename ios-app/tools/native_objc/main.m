@@ -244,7 +244,10 @@ static NSString *DeviceId(void) {
             "if(isGongtian)document.documentElement.classList.add('gongtian-native-app');"
             "if(%@!==''){window.INSULATION_API_BASE=%@;window.__INSULATION_API_BASE__=%@;}"
             "if(%@!==''){window.GONGTIAN_REMOTE_API_BASE=%@;}"
-            "window.__INSULATION_DEVICE_ID__=%@;}catch(e){}})();",
+            "window.__INSULATION_DEVICE_ID__=%@;"
+            /* iOS：跳过 app-shell iframe 外壳，登录后直进业务页，避免遮罩黑屏 */
+            "window.__BAOWEN_IOS_NO_APP_SHELL__=true;"
+            "}catch(e){}})();",
             JSONString(deviceId),
             JSONString(insApi), JSONString(insApi), JSONString(insApi),
             JSONString(gtApi), JSONString(gtApi),
@@ -275,7 +278,8 @@ static NSString *DeviceId(void) {
             "document.body.style.setProperty('visibility','visible','important');}"
             "document.querySelectorAll('body > main,#mainNav,.marquee-bar,body > footer').forEach(function(el){"
             "el.style.setProperty('opacity','1','important');"
-            "el.style.setProperty('visibility','visible','important');});"
+            "el.style.setProperty('visibility','visible','important');"
+            "el.style.setProperty('display','block','important');});"
             "if(typeof hideShellFrameCover==='function')hideShellFrameCover();"
             "var cover=document.getElementById('shellFrameCover');"
             "if(cover){cover.style.setProperty('opacity','0','important');"
@@ -308,7 +312,15 @@ static NSString *DeviceId(void) {
             "+'opacity:0!important;visibility:hidden!important;pointer-events:none!important;display:none!important;}'"
             "+'html.gongtian-native-app body,html.site-bg-ready body{opacity:1!important;visibility:visible!important;}'"
             "+'html.gongtian-native-app body>main,html.site-bg-ready body>main,' "
-            "+'html.gongtian-native-app #mainNav,html.site-bg-ready #mainNav{opacity:1!important;visibility:visible!important;}'"
+            "+'html.gongtian-native-app #mainNav,html.site-bg-ready #mainNav,' "
+            "+'html.gongtian-native-app .marquee-bar,html.site-bg-ready .marquee-bar{' "
+            "+'opacity:1!important;visibility:visible!important;display:block!important;}'"
+            /* 覆盖 page-boot-guard 的 display:none，即使仍卡在 pending */
+            "+'html.gongtian-native-app.page-bg-pending body>main,' "
+            "+'html.gongtian-native-app.page-bg-pending body>footer,' "
+            "+'html.gongtian-native-app.page-bg-pending #mainNav,' "
+            "+'html.gongtian-native-app.page-bg-pending .marquee-bar{' "
+            "+'opacity:1!important;visibility:visible!important;display:block!important;pointer-events:auto!important;}'"
             "+'html.baowen-native-app body.tab-embedded{padding-bottom:0!important;}'"
             /* 悬浮球 */
             "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
@@ -462,9 +474,9 @@ static NSString *DeviceId(void) {
         UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
         self.webView.backgroundColor = wine;
         self.webView.scrollView.backgroundColor = wine;
-        /* shell 自身不滚动，交给 iframe 内页滚动，避免手势被外层抢走 */
-        self.webView.scrollView.scrollEnabled = NO;
-        self.webView.scrollView.bounces = NO;
+        /* 默认允许滚动；baowen/shell、gongtian/app-shell 再关掉（交给 iframe） */
+        self.webView.scrollView.scrollEnabled = YES;
+        self.webView.scrollView.bounces = YES;
         self.webView.scrollView.delaysContentTouches = NO;
         self.webView.scrollView.canCancelContentTouches = YES;
         self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
@@ -488,6 +500,7 @@ static NSString *DeviceId(void) {
             [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://1.14.142.104:3101/"]]];
             return;
         }
+        [self updateScrollForURL:[NSURL fileURLWithPath:pagePath]];
         [self.webView loadFileURL:[NSURL fileURLWithPath:pagePath]
             allowingReadAccessToURL:[NSURL fileURLWithPath:wwwDir isDirectory:YES]];
     } @catch (NSException *ex) {
@@ -495,17 +508,41 @@ static NSString *DeviceId(void) {
     }
 }
 
+- (void)updateScrollForURL:(NSURL *)url {
+    NSString *path = (url.path ?: @"").lowercaseString;
+    NSString *abs = (url.absoluteString ?: @"").lowercaseString;
+    BOOL isBaowenShell = [path containsString:@"/baowen/shell.html"] || [abs containsString:@"/baowen/shell.html"];
+    BOOL isGtShell = [path containsString:@"/gongtian/app-shell.html"] || [abs containsString:@"/gongtian/app-shell.html"];
+    BOOL lockScroll = isBaowenShell || isGtShell;
+    self.webView.scrollView.scrollEnabled = !lockScroll;
+    self.webView.scrollView.bounces = !lockScroll;
+}
+
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    [self updateScrollForURL:webView.URL];
     int sat = (int)lround([self safeTop]);
     int sab = (int)lround([self safeBottom]);
     NSString *js = [NSString stringWithFormat:
-        @        "document.documentElement.style.setProperty('--sat','%dpx');"
+        @"document.documentElement.style.setProperty('--sat','%dpx');"
         "document.documentElement.style.setProperty('--sab','%dpx');"
         "var href=String(location.href||'');"
         "if(/\\/baowen\\//i.test(href))"
         "document.documentElement.classList.add('baowen-native-app');"
         "else document.documentElement.classList.remove('baowen-native-app');"
-        "try{if(typeof window.updatePriceTagTornEdges==='function')window.updatePriceTagTornEdges();}catch(e){}",
+        "try{if(typeof window.updatePriceTagTornEdges==='function')window.updatePriceTagTornEdges();}catch(e){}"
+        "if(/\\/gongtian\\//i.test(href)&&!/app-shell\\.html/i.test(href)){(function(){"
+        "var r=document.documentElement;"
+        "r.classList.add('site-bg-ready','site-ui-ready','gongtian-native-app');"
+        "r.classList.remove('page-bg-pending','page-bg-pending-shell');"
+        "if(document.body){document.body.style.setProperty('opacity','1','important');"
+        "document.body.style.setProperty('visibility','visible','important');}"
+        "document.querySelectorAll('body>main,#mainNav,.marquee-bar,body>footer,#themeOverlay').forEach(function(el){"
+        "el.style.setProperty('opacity','1','important');"
+        "el.style.setProperty('visibility','visible','important');"
+        "if(el.tagName==='NAV'||el.id==='mainNav'){el.style.setProperty('display','block','important');}"
+        "else if(el.tagName==='MAIN'||el.tagName==='FOOTER'){el.style.setProperty('display','block','important');}"
+        "else{el.style.setProperty('display','block','important');}"
+        "});})();}",
         sat, sab];
     [webView evaluateJavaScript:js completionHandler:nil];
     self.webView.scrollView.contentInset = UIEdgeInsetsZero;
@@ -522,6 +559,9 @@ static NSString *DeviceId(void) {
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    if (navigationAction.targetFrame.isMainFrame) {
+        [self updateScrollForURL:navigationAction.request.URL];
+    }
     NSURL *url = navigationAction.request.URL;
     if (!url) { decisionHandler(WKNavigationActionPolicyAllow); return; }
     NSString *abs = (url.absoluteString ?: @"").lowercaseString;
