@@ -74,6 +74,11 @@ static NSString *DeviceId(void) {
     if ([method isEqualToString:@"getDeviceType"]) return @"mobile";
     if ([method isEqualToString:@"getSafeAreaTop"]) return [NSString stringWithFormat:@"%d", (int)lround([self safeTop])];
     if ([method isEqualToString:@"getSafeAreaBottom"]) return [NSString stringWithFormat:@"%d", (int)lround([self safeBottom])];
+    if ([method isEqualToString:@"openExternalUrl"]) {
+        NSString *raw = (args.count && [args[0] isKindOfClass:[NSString class]]) ? args[0] : @"";
+        [self openExternalURLString:raw];
+        return @"";
+    }
     if ([method isEqualToString:@"exitApp"]) { dispatch_async(dispatch_get_main_queue(), ^{ exit(0); }); return @""; }
     if ([method isEqualToString:@"goAppHome"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -82,6 +87,26 @@ static NSString *DeviceId(void) {
         return @"";
     }
     (void)args; return @"";
+}
+
+- (void)openExternalURLString:(NSString *)raw {
+    if (!raw.length) return;
+    NSURL *url = [NSURL URLWithString:raw];
+    if (!url) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *scheme = (url.scheme ?: @"").lowercaseString;
+        if ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) {
+            /* 支付/外链：在当前 WebView 打开，保留返回能力 */
+            [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+            return;
+        }
+        UIApplication *app = UIApplication.sharedApplication;
+        if ([app canOpenURL:url]) {
+            [app openURL:url options:@{} completionHandler:nil];
+        } else {
+            [app openURL:url options:@{} completionHandler:nil];
+        }
+    });
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
@@ -141,6 +166,7 @@ static NSString *DeviceId(void) {
             "openApplicationPermissionSettings:function(){call('openApplicationPermissionSettings');},"
             "pickDailyReminderSound:function(){call('pickDailyReminderSound');},"
             "requestNotificationPermission:function(){call('requestNotificationPermission');},"
+            "openExternalUrl:function(u){call('openExternalUrl',u||'');},"
             "goAppHome:function(s){call('goAppHome',s||'');},"
             "exitApp:function(){call('exitApp');}};})();";
 
@@ -180,6 +206,9 @@ static NSString *DeviceId(void) {
             "var css=document.createElement('style');css.id='baowen-native-adaptive';"
             "css.textContent='html.baowen-native-app{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}'"
             "+'html.baowen-native-app.baowen-native-scroll body{overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;}'"
+            /* 悬浮球：缩小、降 z-index，避免挡住支付/弹窗 */
+            "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
+            "+'#dualFloatMask,#dualFloatPanel,#dualExitConfirm,#dualFloatTip{z-index:100050!important;}'"
             "+'#dualFloatFab{width:40px!important;height:40px!important;}'"
             "+'#dualFloatFab .dual-fab-bars{width:14px;gap:4px;}'"
             "+'#dualFloatPanel{width:min(82vw,280px)!important;border-radius:14px!important;}'"
@@ -187,7 +216,23 @@ static NSString *DeviceId(void) {
             "+'#dualFloatPanel .dual-menu-head h3{font-size:.9rem!important;letter-spacing:.12em!important;}'"
             "+'#dualFloatPanel button{padding:.68rem .95rem!important;font-size:.86rem!important;gap:.65rem!important;}'"
             "+'#dualFloatPanel button .ico{width:1.4rem!important;height:1.4rem!important;font-size:.75rem!important;}'"
-            "+'#dualFloatRestore{width:14px!important;height:44px!important;}';"
+            "+'#dualFloatRestore{width:14px!important;height:44px!important;}'"
+            /* 资费标签：固定高度 + 强制红/金底色，避免 WK 下发灰发虚 */
+            "+'html.baowen-native-app .notice-price-tags{--ph:96px;height:96px;}'"
+            "+'html.baowen-native-app .notice-price-tag{pointer-events:auto!important;-webkit-tap-highlight-color:transparent;}'"
+            "+'html.baowen-native-app .notice-price-tag-annual .notice-price-tag-bg{background:linear-gradient(155deg,#8b0000 0%,#a01818 45%,#6b0000 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-lifetime .notice-price-tag-bg{background:linear-gradient(205deg,#d4af37 0%,#b8860b 40%,#8b0000 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-annual.is-selected .notice-price-tag-bg{background:linear-gradient(155deg,#1a5f6e 0%,#0e3d4a 42%,#082830 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-tag-lifetime.is-selected .notice-price-tag-bg{background:linear-gradient(205deg,#f5d488 0%,#c9a227 38%,#8a6a12 100%)!important;}'"
+            "+'html.baowen-native-app .notice-price-label{color:rgba(255,255,255,.85)!important;}'"
+            "+'html.baowen-native-app .notice-price-value{color:#f5d488!important;}'"
+            "+'html.baowen-native-app .notice-price-tag.is-selected .notice-price-value{color:#fff8e7!important;}'"
+            "+'html.baowen-native-app .notice-pay-btn{pointer-events:auto!important;position:relative;z-index:6;}'"
+            "+'html.baowen-native-app .notice-contact{pointer-events:auto!important;cursor:pointer;padding:.65rem .85rem;border-radius:.65rem;"
+            "+'border:1px solid rgba(212,175,55,.35);background:rgba(0,0,0,.28);color:rgba(255,255,255,.85)!important;}'"
+            "+'html.baowen-native-app .notice-contact-id{color:#f5d488!important;text-decoration:underline;}'"
+            "+'html.baowen-native-app .notice-board{margin-bottom:0.5rem!important;}'"
+            "+'html.baowen-native-app.baowen-native-scroll body.tab-embedded{padding-bottom:8px!important;min-height:0!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
             "if(!document.querySelector('.shell'))document.documentElement.classList.add('baowen-native-scroll');"
             "else document.documentElement.classList.remove('baowen-native-scroll');"
@@ -197,7 +242,7 @@ static NSString *DeviceId(void) {
             "window.addEventListener('orientationchange',function(){setTimeout(applyScale,80);});"
             "}catch(e){}})();";
 
-        /* 仅主 frame（shell）：安全区，不要 overflow:hidden 到 iframe */
+        /* 仅主 frame（shell）：顶栏安全区；底部不再垫空白（由内页自己滚动） */
         NSString *shellLayoutJs = [NSString stringWithFormat:
             @"(function(){try{"
             "document.documentElement.style.setProperty('--sat','%dpx');"
@@ -207,7 +252,7 @@ static NSString *DeviceId(void) {
             "css.textContent='html.baowen-native-app .shell{height:100%%;min-height:100%%;min-height:-webkit-fill-available;}'"
             "+'html.baowen-native-app .nav-container{padding-top:env(safe-area-inset-top,var(--sat,0px));height:auto;'"
             "+'min-height:calc(52px + env(safe-area-inset-top,var(--sat,0px)));box-sizing:border-box;}'"
-            "+'html.baowen-native-app .tab-panels{padding-bottom:env(safe-area-inset-bottom,var(--sab,0px));box-sizing:border-box;}'"
+            "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;box-sizing:border-box;}'"
             "+'html.baowen-native-app .auth-wrap{min-height:-webkit-fill-available;'"
             "+'padding-top:calc(1.25rem + env(safe-area-inset-top,var(--sat,0px)));'"
             "+'padding-bottom:calc(1.25rem + env(safe-area-inset-bottom,var(--sab,0px)));}';"
@@ -264,9 +309,70 @@ static NSString *DeviceId(void) {
         "document.documentElement.classList.add('baowen-native-app');"
         "try{var w=Math.min(document.documentElement.clientWidth||9999,window.innerWidth||9999);"
         "if(!isFinite(w)||w<1)w=screen.width||375;"
-        "document.documentElement.style.fontSize=Math.max(12,Math.min(15,w/26))+'px';}catch(e){}",
+        "document.documentElement.style.fontSize=Math.max(12,Math.min(15,w/26))+'px';"
+        "if(typeof updatePriceTagTornEdges==='function')updatePriceTagTornEdges();}catch(e){}",
         sat, sab];
     [webView evaluateJavaScript:js completionHandler:nil];
+}
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    NSURL *url = navigationAction.request.URL;
+    if (!url) { decisionHandler(WKNavigationActionPolicyAllow); return; }
+    NSString *abs = (url.absoluteString ?: @"").lowercaseString;
+    NSString *scheme = (url.scheme ?: @"").lowercaseString;
+
+    BOOL isHttp = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+    BOOL isFile = [scheme isEqualToString:@"file"] || [scheme isEqualToString:@"about"] || [scheme isEqualToString:@"blob"];
+
+    /* 支付宝/微信等 App Scheme 或 alipays:// 中间页 */
+    BOOL looksPayApp =
+        [abs hasPrefix:@"alipay"] || [abs hasPrefix:@"alipays"] ||
+        [abs hasPrefix:@"weixin"] || [abs hasPrefix:@"wechat"] ||
+        [abs hasPrefix:@"mqqapi"] || [abs hasPrefix:@"mqq"] ||
+        [abs containsString:@"://platformapi/startapp"] ||
+        ([abs containsString:@"alipay.com/"] && [abs containsString:@"app_id="]);
+
+    if (!isHttp && !isFile) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        });
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+    if (isHttp && looksPayApp && navigationAction.navigationType != WKNavigationTypeOther) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        });
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+    decisionHandler(WKNavigationActionPolicyAllow);
+}
+
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
+    (void)configuration; (void)windowFeatures;
+    NSURL *url = navigationAction.request.URL;
+    if (url) {
+        if (!navigationAction.targetFrame.isMainFrame) {
+            [webView loadRequest:navigationAction.request];
+        }
+    }
+    return nil;
+}
+
+- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler {
+    (void)webView; (void)frame;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) { completionHandler(); }]];
+    [self.rootVC presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)webView:(WKWebView *)webView runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL))completionHandler {
+    (void)webView; (void)frame;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *a) { completionHandler(NO); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) { completionHandler(YES); }]];
+    [self.rootVC presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
