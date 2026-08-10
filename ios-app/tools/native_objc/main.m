@@ -119,20 +119,21 @@ static NSString *DeviceId(void) {
 - (void)openExternalURLString:(NSString *)raw {
     if (!raw.length) return;
     NSURL *url = [NSURL URLWithString:raw];
+    if (!url) {
+        NSString *enc = [raw stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLFragmentAllowedCharacterSet]];
+        url = [NSURL URLWithString:enc ?: raw];
+    }
     if (!url) return;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *scheme = (url.scheme ?: @"").lowercaseString;
-        if ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) {
-            /* 支付/外链：在当前 WebView 打开，保留返回能力 */
-            [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
-            return;
-        }
-        UIApplication *app = UIApplication.sharedApplication;
-        if ([app canOpenURL:url]) {
-            [app openURL:url options:@{} completionHandler:nil];
-        } else {
-            [app openURL:url options:@{} completionHandler:nil];
-        }
+        /* 支付页用系统打开更稳：file:// 内嵌 WebView 跳 https 收银台常被拦 */
+        [UIApplication.sharedApplication openURL:url options:@{} completionHandler:^(BOOL success) {
+            if (!success) {
+                NSString *scheme = (url.scheme ?: @"").lowercaseString;
+                if ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) {
+                    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+                }
+            }
+        }];
     });
 }
 
