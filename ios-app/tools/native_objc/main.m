@@ -2,13 +2,25 @@
 #import <WebKit/WebKit.h>
 
 @interface RootViewController : UIViewController
+@property (nonatomic, copy) void (^onLayout)(void);
 @end
 @implementation RootViewController
 - (UIStatusBarStyle)preferredStatusBarStyle { return UIStatusBarStyleLightContent; }
 - (BOOL)prefersStatusBarHidden { return NO; }
+- (BOOL)prefersHomeIndicatorAutoHidden { return NO; }
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.edgesForExtendedLayout = UIRectEdgeAll;
+    self.extendedLayoutIncludesOpaqueBars = YES;
+    self.view.backgroundColor = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
+}
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (self.onLayout) self.onLayout();
+}
 @end
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate>
+@interface AppDelegate : UIResponder <UIApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler>
 @property (strong, nonatomic) UIWindow *window;
 @property (strong, nonatomic) WKWebView *webView;
 @property (strong, nonatomic) RootViewController *rootVC;
@@ -79,7 +91,22 @@ static NSString *DeviceId(void) {
         [self openExternalURLString:raw];
         return @"";
     }
-    if ([method isEqualToString:@"exitApp"]) { dispatch_async(dispatch_get_main_queue(), ^{ exit(0); }); return @""; }
+    if ([method isEqualToString:@"exitApp"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            /* 企业签/超级签场景允许直接结束进程 */
+            UIApplication *app = UIApplication.sharedApplication;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            if ([app respondsToSelector:NSSelectorFromString(@"suspend")]) {
+                [app performSelector:NSSelectorFromString(@"suspend")];
+            }
+#pragma clang diagnostic pop
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                exit(0);
+            });
+        });
+        return @"";
+    }
     if ([method isEqualToString:@"goAppHome"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.webView evaluateJavaScript:@"location.href='baowen/shell.html'" completionHandler:nil];
@@ -117,6 +144,18 @@ static NSString *DeviceId(void) {
     self.rootVC.view.backgroundColor = wine;
     self.window.backgroundColor = wine;
     self.window.rootViewController = self.rootVC;
+    __weak AppDelegate *weakSelf = self;
+    self.rootVC.onLayout = ^{
+        AppDelegate *strong = weakSelf;
+        if (!strong || !strong.webView) return;
+        strong.webView.frame = strong.rootVC.view.bounds;
+        int sat = (int)lround([strong safeTop]);
+        int sab = (int)lround([strong safeBottom]);
+        NSString *js = [NSString stringWithFormat:
+            @"document.documentElement.style.setProperty('--sat','%dpx');"
+            "document.documentElement.style.setProperty('--sab','%dpx');", sat, sab];
+        [strong.webView evaluateJavaScript:js completionHandler:nil];
+    };
     [self.window makeKeyAndVisible];
     BOOL minimal = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"BaoWenMinimalUI"] boolValue];
     if (minimal) {
@@ -172,7 +211,10 @@ static NSString *DeviceId(void) {
             "window.webkit.messageHandlers.InsulationNativeBridge.postMessage({method:'openExternalUrl',args:[u||'']});return;}}catch(e){}"
             "call('openExternalUrl',u||'');},"
             "goAppHome:function(s){call('goAppHome',s||'');},"
-            "exitApp:function(){call('exitApp');}};})();";
+            "exitApp:function(){"
+            "try{if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.InsulationNativeBridge){"
+            "window.webkit.messageHandlers.InsulationNativeBridge.postMessage({method:'exitApp',args:[]});return;}}catch(e){}"
+            "call('exitApp');}};})();";
 
         NSString *flags = [NSString stringWithFormat:
             @"(function(){try{localStorage.setItem('insulation_device_id',%@);"
@@ -211,8 +253,9 @@ static NSString *DeviceId(void) {
             "+'background-image:url(\"./beijingtu.jpg\"),url(\"../beijingtu.jpg\"),linear-gradient(180deg,#8B0000,#4a0000)!important;"
             "+'background-size:cover!important;background-position:center!important;position:absolute!important;"
             "+'top:0;left:0;right:0;bottom:0;min-height:100%!important;}'"
-            "+'html.baowen-native-app.baowen-native-scroll body{overflow-x:hidden!important;overflow-y:auto!important;"
-            "+'-webkit-overflow-scrolling:touch;min-height:100%!important;}'"
+            "+'html.baowen-native-app.baowen-native-scroll{height:auto!important;min-height:100%!important;}'"
+            "+'html.baowen-native-app.baowen-native-scroll body{height:auto!important;min-height:100%!important;"
+            "+'overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;}'"
             "+'html.baowen-native-app body.tab-embedded{padding-bottom:0!important;}'"
             /* 悬浮球 */
             "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
@@ -272,11 +315,12 @@ static NSString *DeviceId(void) {
             "document.documentElement.style.setProperty('--sab','%dpx');"
             "if(!document.getElementById('baowen-native-safearea')){"
             "var css=document.createElement('style');css.id='baowen-native-safearea';"
-            "css.textContent='html.baowen-native-app,html.baowen-native-app body{background:#5c0000!important;}'"
-            "+'html.baowen-native-app .shell{height:100%%;min-height:100%%;min-height:-webkit-fill-available;background:#5c0000!important;}'"
-            "+'html.baowen-native-app .nav-container{padding-top:env(safe-area-inset-top,var(--sat,0px));height:auto;'"
-            "+'min-height:calc(52px + env(safe-area-inset-top,var(--sat,0px)));box-sizing:border-box;}'"
-            "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;background:#5c0000!important;}'"
+            "css.textContent='html.baowen-native-app,html.baowen-native-app body{background:#5c0000!important;height:100%%;}'"
+            "+'html.baowen-native-app .shell{position:fixed;inset:0;height:100%%;width:100%%;"
+            "+'min-height:100%%;min-height:-webkit-fill-available;background:#5c0000!important;}'"
+            "+'html.baowen-native-app .nav-container{padding-top:max(env(safe-area-inset-top,0px),var(--sat,0px));height:auto;'"
+            "+'min-height:calc(52px + max(env(safe-area-inset-top,0px),var(--sat,0px)));box-sizing:border-box;}'"
+            "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;background:#5c0000!important;flex:1;min-height:0;}'"
             "+'html.baowen-native-app .tab-panel{background:#5c0000!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
             "}catch(e){}})();", sat, sab];
@@ -300,7 +344,8 @@ static NSString *DeviceId(void) {
         /* shell 自身不滚动，交给 iframe 内页滚动，避免手势被外层抢走 */
         self.webView.scrollView.scrollEnabled = NO;
         self.webView.scrollView.bounces = NO;
-        self.webView.scrollView.delegate = self;
+        self.webView.scrollView.delaysContentTouches = NO;
+        self.webView.scrollView.canCancelContentTouches = YES;
         self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         self.webView.scrollView.contentInset = UIEdgeInsetsZero;
         self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
@@ -309,6 +354,7 @@ static NSString *DeviceId(void) {
         }
         self.webView.allowsBackForwardNavigationGestures = NO;
         [host addSubview:self.webView];
+        self.webView.frame = host.bounds;
 
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onKeyboardFrameChange:) name:UIKeyboardWillChangeFrameNotification object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onKeyboardFrameChange:) name:UIKeyboardWillHideNotification object:nil];
@@ -340,27 +386,17 @@ static NSString *DeviceId(void) {
         "document.querySelectorAll('.notice-price-tear').forEach(function(el){el.style.display='none';});}catch(e){}",
         sat, sab];
     [webView evaluateJavaScript:js completionHandler:nil];
-    [self lockWebScroll];
-}
-
-- (void)lockWebScroll {
-    if (!self.webView) return;
     self.webView.scrollView.contentInset = UIEdgeInsetsZero;
     self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
-    if (!CGPointEqualToPoint(self.webView.scrollView.contentOffset, CGPointZero)) {
-        [self.webView.scrollView setContentOffset:CGPointZero animated:NO];
-    }
-}
-
-- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
-    if (scrollView == self.webView.scrollView && fabs(scrollView.contentOffset.y) > 0.5) {
-        [scrollView setContentOffset:CGPointZero animated:NO];
-    }
 }
 
 - (void)onKeyboardFrameChange:(NSNotification *)note {
     (void)note;
-    dispatch_async(dispatch_get_main_queue(), ^{ [self lockWebScroll]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.webView.scrollView.contentInset = UIEdgeInsetsZero;
+        self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
+        /* 不强制改 contentOffset，避免和 iframe 内滑动抢手势导致卡死 */
+    });
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
