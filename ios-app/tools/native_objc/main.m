@@ -1,6 +1,9 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <SafariServices/SafariServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <MobileCoreServices/MobileCoreServices.h>
+#import <Security/Security.h>
 
 @interface RootViewController : UIViewController
 @property (nonatomic, copy) void (^onLayout)(void);
@@ -13,7 +16,17 @@
     [super viewDidLoad];
     self.edgesForExtendedLayout = UIRectEdgeAll;
     self.extendedLayoutIncludesOpaqueBars = YES;
+    if (@available(iOS 11.0, *)) {
+        self.additionalSafeAreaInsets = UIEdgeInsetsZero;
+    }
     self.view.backgroundColor = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
+}
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    /* 禁止系统把 WebView 内容整体下推出一条黑带 */
+    if (@available(iOS 11.0, *)) {
+        self.additionalSafeAreaInsets = UIEdgeInsetsZero;
+    }
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -21,7 +34,7 @@
 }
 @end
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler>
+@interface AppDelegate : UIResponder <UIApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler, UIDocumentPickerDelegate>
 @property (strong, nonatomic) UIWindow *window;
 @property (strong, nonatomic) WKWebView *webView;
 @property (strong, nonatomic) RootViewController *rootVC;
@@ -50,18 +63,85 @@ static NSString *JSONString(NSString *value) {
     return @"\"\"";
 }
 
-static NSString *DeviceId(void) {
-    NSString *key = @"insulation_device_id";
+/** 钥匙串读写：升级/覆盖安装通常保留；卸载后现代 iOS 仍可能清空（非硬件 UDID）。 */
+static NSString *KeychainGet(NSString *service, NSString *account) {
+    if (!service.length || !account.length) return nil;
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: service,
+        (__bridge id)kSecAttrAccount: account,
+        (__bridge id)kSecReturnData: @YES,
+        (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne
+    };
+    CFTypeRef result = NULL;
+    OSStatus st = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
+    if (st != errSecSuccess || !result) return nil;
+    NSData *data = CFBridgingRelease(result);
+    if (![data isKindOfClass:[NSData class]] || data.length == 0) return nil;
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
+static BOOL KeychainSet(NSString *service, NSString *account, NSString *value) {
+    if (!service.length || !account.length || !value.length) return NO;
+    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) return NO;
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: service,
+        (__bridge id)kSecAttrAccount: account
+    };
+    SecItemDelete((__bridge CFDictionaryRef)query);
+    NSDictionary *add = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: service,
+        (__bridge id)kSecAttrAccount: account,
+        (__bridge id)kSecValueData: data,
+        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    };
+    return SecItemAdd((__bridge CFDictionaryRef)add, NULL) == errSecSuccess;
+}
+
+/** 应用侧稳定设备码（非苹果硬件 UDID；公开 API 无法读取真实 UDID）。 */
+static NSString *StableAppDeviceCode(void) {
+    static NSString *cached = nil;
+    if (cached.length) return cached;
+    NSString *service = @"com.baowen.insulation.device";
+    NSString *account = @"app_device_code";
+    NSString *fromKc = KeychainGet(service, account);
+    if (fromKc.length) {
+        cached = fromKc;
+        [[NSUserDefaults standardUserDefaults] setObject:cached forKey:@"insulation_device_id"];
+        return cached;
+    }
     NSUserDefaults *ud = NSUserDefaults.standardUserDefaults;
-    NSString *existing = [ud stringForKey:key];
-    if (existing.length) return existing;
+    NSString *legacy = [ud stringForKey:@"insulation_device_id"];
+    if (legacy.length) {
+        KeychainSet(service, account, legacy);
+        cached = legacy;
+        return cached;
+    }
     NSString *vendor = UIDevice.currentDevice.identifierForVendor.UUIDString ?: @"unknown";
     vendor = [[vendor stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
     NSString *uuid = [[[[NSUUID UUID] UUIDString] stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
-    if (uuid.length > 12) uuid = [uuid substringToIndex:12];
-    NSString *deviceId = [NSString stringWithFormat:@"i_%@_%@", vendor, uuid];
-    [ud setObject:deviceId forKey:key];
-    return deviceId;
+    if (uuid.length > 16) uuid = [uuid substringToIndex:16];
+    cached = [NSString stringWithFormat:@"ios_%@_%@", vendor, uuid];
+    KeychainSet(service, account, cached);
+    [ud setObject:cached forKey:@"insulation_device_id"];
+    return cached;
+}
+
+static NSString *DeviceId(void) {
+    return StableAppDeviceCode();
+}
+
+static NSString *VendorId(void) {
+    NSString *vendor = UIDevice.currentDevice.identifierForVendor.UUIDString ?: @"";
+    return [[vendor stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
+}
+
+static NSString *AppUdidAlias(void) {
+    /* 对外别名 getUDID：返回钥匙串稳定设备码，不是苹果硬件 UDID */
+    return StableAppDeviceCode();
 }
 
 - (CGFloat)safeTop {
@@ -83,6 +163,8 @@ static NSString *DeviceId(void) {
 
 - (NSString *)handleBridgeMethod:(NSString *)method args:(NSArray *)args {
     if ([method isEqualToString:@"getDeviceId"]) return DeviceId();
+    if ([method isEqualToString:@"getUDID"] || [method isEqualToString:@"getUdid"]) return AppUdidAlias();
+    if ([method isEqualToString:@"getVendorId"] || [method isEqualToString:@"getIdentifierForVendor"]) return VendorId();
     if ([method isEqualToString:@"getDeviceLabel"]) return UIDevice.currentDevice.model ?: @"iPhone";
     if ([method isEqualToString:@"getDeviceType"]) return @"mobile";
     if ([method isEqualToString:@"getSafeAreaTop"]) return [NSString stringWithFormat:@"%d", (int)lround([self safeTop])];
@@ -94,27 +176,145 @@ static NSString *DeviceId(void) {
     }
     if ([method isEqualToString:@"exitApp"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            /* 企业签/超级签场景允许直接结束进程 */
             UIApplication *app = UIApplication.sharedApplication;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            if ([app respondsToSelector:NSSelectorFromString(@"suspend")]) {
-                [app performSelector:NSSelectorFromString(@"suspend")];
+            /* 先挂起再退出，兼容企业签/超级签 */
+            SEL sus = NSSelectorFromString(@"suspend");
+            if ([app respondsToSelector:sus]) {
+                [app performSelector:sus];
             }
 #pragma clang diagnostic pop
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 exit(0);
+            });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                abort();
             });
         });
         return @"";
     }
     if ([method isEqualToString:@"goAppHome"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self.webView evaluateJavaScript:@"location.href='baowen/shell.html'" completionHandler:nil];
+            [self.webView evaluateJavaScript:@"location.href='index.html'" completionHandler:nil];
+        });
+        return @"";
+    }
+    if ([method isEqualToString:@"saveDownloadFile"]) {
+        NSString *b64 = (args.count > 0 && [args[0] isKindOfClass:[NSString class]]) ? args[0] : @"";
+        NSString *name = (args.count > 1 && [args[1] isKindOfClass:[NSString class]]) ? args[1] : @"download.bin";
+        NSString *mime = (args.count > 2 && [args[2] isKindOfClass:[NSString class]]) ? args[2] : @"application/octet-stream";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self saveDownloadBase64:b64 filename:name mimeType:mime];
+        });
+        return @"";
+    }
+    if ([method isEqualToString:@"pickRestoreFile"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self openRestoreFilePicker];
         });
         return @"";
     }
     (void)args; return @"";
+}
+
+- (void)saveDownloadBase64:(NSString *)base64 filename:(NSString *)filename mimeType:(NSString *)mimeType {
+    (void)mimeType;
+    if (!base64.length) {
+        [self presentSimpleAlert:@"文件解码失败"];
+        return;
+    }
+    NSString *raw = base64;
+    NSRange range = [raw rangeOfString:@"base64,"];
+    if (range.location != NSNotFound) {
+        raw = [raw substringFromIndex:NSMaxRange(range)];
+    }
+    NSData *data = [[NSData alloc] initWithBase64EncodedString:raw options:NSDataBase64DecodingIgnoreUnknownCharacters];
+    if (!data) {
+        [self presentSimpleAlert:@"文件解码失败"];
+        return;
+    }
+    NSString *rawName = filename.length ? filename : @"download.bin";
+    NSString *safeName = [[rawName stringByReplacingOccurrencesOfString:@"/" withString:@"_"]
+                          stringByReplacingOccurrencesOfString:@"\\" withString:@"_"];
+    if (!safeName.length) safeName = @"download.bin";
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:safeName]];
+    NSError *err = nil;
+    if (![data writeToURL:url options:NSDataWritingAtomic error:&err]) {
+        [self presentSimpleAlert:[NSString stringWithFormat:@"保存失败: %@", err.localizedDescription ?: @"未知错误"]];
+        return;
+    }
+    UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+    UIViewController *presenter = self.rootVC;
+    while (presenter.presentedViewController) {
+        presenter = presenter.presentedViewController;
+    }
+    if (activity.popoverPresentationController) {
+        activity.popoverPresentationController.sourceView = presenter.view;
+        activity.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1, 1);
+    }
+    [presenter presentViewController:activity animated:YES completion:nil];
+}
+
+- (void)openRestoreFilePicker {
+    UIDocumentPickerViewController *picker = nil;
+    if (@available(iOS 14.0, *)) {
+        NSArray *types = @[
+            UTTypeJSON,
+            UTTypePlainText,
+            UTTypeData
+        ];
+        picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:YES];
+    } else {
+        picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.json", @"public.text", @"public.data"] inMode:UIDocumentPickerModeImport];
+    }
+    picker.delegate = self;
+    picker.allowsMultipleSelection = NO;
+    UIViewController *presenter = self.rootVC;
+    while (presenter.presentedViewController) {
+        presenter = presenter.presentedViewController;
+    }
+    [presenter presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    (void)controller;
+    NSURL *url = urls.firstObject;
+    if (!url) return;
+    BOOL access = [url startAccessingSecurityScopedResource];
+    NSData *data = [NSData dataWithContentsOfURL:url];
+    if (access) [url stopAccessingSecurityScopedResource];
+    if (!data) {
+        [self presentSimpleAlert:@"无法读取所选文件"];
+        return;
+    }
+    NSString *b64 = [data base64EncodedStringWithOptions:0];
+    NSString *name = url.lastPathComponent ?: @"backup.json";
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+    NSString *js = [NSString stringWithFormat:
+        @"(function(){try{"
+        "var detail={name:%@,base64:%@,text:%@};"
+        "window.dispatchEvent(new CustomEvent('gongtian-restore-file',{detail:detail}));"
+        "if(window.onNativeRestoreFile)window.onNativeRestoreFile(detail);"
+        "if(window.__handleNativeRestoreFile)window.__handleNativeRestoreFile(detail.text||'',detail.name||'backup.json');"
+        "}catch(e){}})();",
+        JSONString(name), JSONString(b64), JSONString(text)];
+    [self.webView evaluateJavaScript:js completionHandler:nil];
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+    (void)controller;
+}
+
+- (void)presentSimpleAlert:(NSString *)message {
+    if (!message.length) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+    UIViewController *presenter = self.rootVC;
+    while (presenter.presentedViewController) {
+        presenter = presenter.presentedViewController;
+    }
+    [presenter presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)openExternalURLString:(NSString *)raw {
@@ -150,7 +350,8 @@ static NSString *DeviceId(void) {
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-    if (@available(iOS 13.0, *)) self.window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    /* 不要强制 Dark：系统会在状态栏/Home 条区域铺黑底，造成顶底黑边 */
+    if (@available(iOS 13.0, *)) self.window.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
     self.rootVC = [RootViewController new];
     UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
     self.rootVC.view.backgroundColor = wine;
@@ -160,12 +361,19 @@ static NSString *DeviceId(void) {
     self.rootVC.onLayout = ^{
         AppDelegate *strong = weakSelf;
         if (!strong || !strong.webView) return;
-        strong.webView.frame = strong.rootVC.view.bounds;
+        /* 始终铺满物理屏幕，避免顶/底露出黑条 */
+        CGRect screen = UIScreen.mainScreen.bounds;
+        strong.window.frame = screen;
+        strong.rootVC.view.frame = screen;
+        strong.webView.frame = screen;
         int sat = (int)lround([strong safeTop]);
         int sab = (int)lround([strong safeBottom]);
         NSString *js = [NSString stringWithFormat:
             @"document.documentElement.style.setProperty('--sat','%dpx');"
-            "document.documentElement.style.setProperty('--sab','%dpx');", sat, sab];
+            "document.documentElement.style.setProperty('--sab','%dpx');"
+            "document.documentElement.style.backgroundColor='#5c0000';"
+            "if(document.body){document.body.style.backgroundColor=document.body.style.backgroundColor||'#5c0000';}",
+            sat, sab];
         [strong.webView evaluateJavaScript:js completionHandler:nil];
     };
     [self.window makeKeyAndVisible];
@@ -183,7 +391,7 @@ static NSString *DeviceId(void) {
 - (void)mountWebView {
     @try {
         NSDictionary *cfg = LoadRuntimeConfig();
-        NSString *entry = cfg[@"assets_entry"] ?: @"baowen/shell.html";
+        NSString *entry = cfg[@"assets_entry"] ?: @"index.html";
         NSString *insApi = cfg[@"insulation_api_base"] ?: cfg[@"server_base"] ?: @"";
         NSString *gtApi = cfg[@"gongtian_api_base"] ?: cfg[@"server_base"] ?: @"";
         NSString *deviceId = DeviceId();
@@ -204,6 +412,9 @@ static NSString *DeviceId(void) {
             "return(ret===null||ret===undefined)?'':String(ret);}"
             "window.InsulationNativeBridge={__iosPromptBridge:true,"
             "getDeviceId:function(){return call('getDeviceId');},"
+            "getUDID:function(){return call('getUDID');},"
+            "getUdid:function(){return call('getUDID');},"
+            "getVendorId:function(){return call('getVendorId');},"
             "getDeviceLabel:function(){return call('getDeviceLabel');},"
             "getDeviceType:function(){return call('getDeviceType');},"
             "getSafeAreaTop:function(){return parseInt(call('getSafeAreaTop')||'0',10)||0;},"
@@ -230,6 +441,7 @@ static NSString *DeviceId(void) {
 
         NSString *flags = [NSString stringWithFormat:
             @"(function(){try{localStorage.setItem('insulation_device_id',%@);"
+            "try{localStorage.setItem('insulation_udid',%@);}catch(eU){}"
             "window.__INSULATION_APP__=true;window.__INSULATION_NATIVE_APP__=true;"
             "window.__GONGTIAN_NATIVE_APP__=true;window.__DUAL_ONLINE_APP__=true;"
             /* 对齐安卓：LOCAL_PACKAGE + LOCAL_FIRST + REMOTE；勿写死 GONGTIAN_API_BASE */
@@ -245,13 +457,14 @@ static NSString *DeviceId(void) {
             "if(%@!==''){window.INSULATION_API_BASE=%@;window.__INSULATION_API_BASE__=%@;}"
             "if(%@!==''){window.GONGTIAN_REMOTE_API_BASE=%@;}"
             "window.__INSULATION_DEVICE_ID__=%@;"
-            /* iOS：跳过 app-shell iframe 外壳，登录后直进业务页，避免遮罩黑屏 */
-            "window.__BAOWEN_IOS_NO_APP_SHELL__=true;"
+            "window.__INSULATION_UDID__=%@;"
+            /* iOS：用工天 app-shell 外壳（与安卓一致）；播放器挂外壳，业务页在 iframe */
+            "window.__BAOWEN_IOS_NO_APP_SHELL__=false;"
             "}catch(e){}})();",
-            JSONString(deviceId),
+            JSONString(deviceId), JSONString(deviceId),
             JSONString(insApi), JSONString(insApi), JSONString(insApi),
             JSONString(gtApi), JSONString(gtApi),
-            JSONString(deviceId)];
+            JSONString(deviceId), JSONString(deviceId)];
 
         int sat = (int)lround([self safeTop]);
         int sab = (int)lround([self safeBottom]);
@@ -279,18 +492,22 @@ static NSString *DeviceId(void) {
             "var bgi=\"url('\"+String(bu).replace(/'/g,'%27')+\"')\";"
             "document.body.style.setProperty('opacity','1','important');"
             "document.body.style.setProperty('visibility','visible','important');"
-            "document.body.style.setProperty('background-image',bgi,'important');"
-            "document.body.style.setProperty('background-size','cover','important');"
-            "document.body.style.setProperty('background-position','center center','important');"
-            "document.body.style.setProperty('background-repeat','no-repeat','important');"
-            "document.body.style.setProperty('background-color','#1a0505','important');"
+            "document.body.style.setProperty('background-image','none','important');"
+            "document.body.style.setProperty('background-color','transparent','important');"
+            "document.body.classList.add('page-fixed-bg-active');"
             "var layer=document.getElementById('pageFixedBg');"
             "if(!layer){layer=document.createElement('div');layer.id='pageFixedBg';"
             "layer.setAttribute('aria-hidden','true');r.insertBefore(layer,r.firstChild);}"
             "layer.classList.add('is-painted');"
             "layer.style.setProperty('position','fixed','important');"
-            "layer.style.setProperty('inset','0','important');"
-            "layer.style.setProperty('z-index','-1','important');"
+            "layer.style.setProperty('top','0','important');"
+            "layer.style.setProperty('left','0','important');"
+            "layer.style.setProperty('right','0','important');"
+            "layer.style.setProperty('bottom','0','important');"
+            "layer.style.setProperty('width','100%','important');"
+            "layer.style.setProperty('height','100%','important');"
+            "layer.style.setProperty('z-index','0','important');"
+            "layer.style.setProperty('transform','none','important');"
             "layer.style.setProperty('display','block','important');"
             "layer.style.setProperty('opacity','1','important');"
             "layer.style.setProperty('visibility','visible','important');"
@@ -299,6 +516,7 @@ static NSString *DeviceId(void) {
             "layer.style.setProperty('background-position','center center','important');"
             "layer.style.setProperty('background-repeat','no-repeat','important');"
             "layer.style.setProperty('pointer-events','none','important');"
+            "r.style.setProperty('background-image','none','important');"
             "}"
             "document.querySelectorAll('body > main,#mainNav,.marquee-bar,body > footer').forEach(function(el){"
             "el.style.setProperty('opacity','1','important');"
@@ -318,9 +536,20 @@ static NSString *DeviceId(void) {
             "if(!document.getElementById('baowen-native-adaptive')){"
             "var css=document.createElement('style');css.id='baowen-native-adaptive';"
             "css.textContent="
-            /* 铺满：用酒红底，避免顶底露出纯黑（仅保温页） */
+            /* 铺满：用酒红底，避免顶底露出纯黑 */
             "'html.baowen-native-app:not(.app-shell-page) body:not(.auth-page){background-color:#5c0000!important;"
             "+'-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}'"
+            "+'html.gongtian-native-app,html.gongtian-native-app body{background-color:#1a0505!important;"
+            "+'min-height:100%!important;min-height:-webkit-fill-available!important;}'"
+            "+'html.gongtian-native-app #pageFixedBg{position:fixed!important;inset:0!important;top:0!important;"
+            "+'z-index:0!important;pointer-events:none!important;}'"
+            /* 导航顶边贴状态栏：禁止 safe-area 顶距（会留出黑缝） */
+            "+'html.gongtian-native-app #mainNav{padding-top:0!important;margin-top:0!important;"
+            "+'top:0!important;box-sizing:border-box!important;"
+            "+'background-color:rgba(92,0,0,0.96)!important;}'"
+            "+'html.gongtian-native-app #mainNav > div,html.gongtian-native-app #mainNav .max-w-7xl{"
+            "+'padding-top:0!important;box-sizing:border-box!important;}'"
+            "+'html.gongtian-native-app #mainNav.bg-luxury-blur{background-color:rgba(92,0,0,0.96)!important;}'"
             "+'html.baowen-native-app body.page-module::before{background-color:#5c0000!important;"
             "+'background-image:url(\"./beijingtu.jpg\"),url(\"../beijingtu.jpg\"),linear-gradient(180deg,#8B0000,#4a0000)!important;"
             "+'background-size:cover!important;background-position:center!important;position:absolute!important;"
@@ -350,23 +579,49 @@ static NSString *DeviceId(void) {
             "+'html.gongtian-native-app.site-bg-ready:not(.auth-route) body.bg-cover,' "
             "+'html.gongtian-native-app:not(.auth-route) body.min-h-screen,' "
             "+'html.gongtian-native-app.user-theme-pending:not(.auth-route) body{' "
-            "+'background-image:url(beijingtu.png)!important;background-size:cover!important;' "
-            "+'background-position:center center!important;background-repeat:no-repeat!important;background-color:#1a0505!important;}'"
+            "+'background-image:none!important;background-color:transparent!important;}'"
             "+'html.gongtian-native-app #pageFixedBg,html.gongtian-native-app.site-bg-ready #pageFixedBg.is-painted{' "
-            "+'position:fixed!important;inset:0!important;display:block!important;opacity:1!important;visibility:visible!important;' "
+            "+'position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;' "
+            "+'width:100%!important;height:100%!important;' "
+            "+'display:block!important;opacity:1!important;visibility:visible!important;' "
             "+'background-image:url(beijingtu.png)!important;background-size:cover!important;background-position:center center!important;' "
-            "+'background-repeat:no-repeat!important;z-index:-1!important;pointer-events:none!important;transform:none!important;}'"
+            "+'background-repeat:no-repeat!important;z-index:0!important;pointer-events:none!important;transform:none!important;}'"
             "+'html.gongtian-native-app .settings-tab-nav{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:.5rem!important;}'"
             "+'html.gongtian-native-app #syncServerTabBtn{grid-column:1/2!important;justify-self:start!important;white-space:nowrap!important;width:auto!important;}'"
-            "+'#syncModeModal,#passwordModal{z-index:300000!important;}'"
+            "+'html>#syncModeModal,html>#passwordModal,body>#syncModeModal,body>#passwordModal{' "
+            "+'position:fixed!important;inset:0!important;z-index:2147483646!important;pointer-events:auto!important;transform:none!important;}'"
+            "+'html>#syncModeModal.gt-modal-open,html>#passwordModal.gt-modal-open,' "
+            "+'body>#syncModeModal.gt-modal-open,body>#passwordModal.gt-modal-open{display:flex!important;}'"
             "+'html.gongtian-native-app #mainNav{position:sticky!important;top:0!important;z-index:500!important;}'"
-            "+'#dualFloatFab,#dualFloatRestore{display:flex!important;opacity:1!important;visibility:visible!important;z-index:9000!important;}'"
+            "+'html.gongtian-native-app,html.gongtian-native-app body{background-color:#1a0505!important;}'"
+            "+'html.gongtian-native-app #pageFixedBg{min-height:100dvh!important;height:100dvh!important;}'"
+            "+'html.gongtian-native-app body>footer{margin-bottom:0!important;"
+            "+'padding-bottom:max(1.25rem,env(safe-area-inset-bottom,0px))!important;"
+            "+'background-color:rgba(92,0,0,0.96)!important;}'"
+            "+'html.gongtian-native-app body>main{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))!important;}'"
+            "+'input,textarea,select,[contenteditable=\"true\"]{-webkit-user-select:text!important;"
+            "+'user-select:text!important;pointer-events:auto!important;-webkit-touch-callout:default!important;"
+            "+'touch-action:manipulation!important;font-size:16px!important;}'"
+            "+'input:focus,textarea:focus,select:focus{outline:none;-webkit-user-select:text!important;}'"
+            /* 工天图表：隐藏空 canvas，露出 HTML 柱状图 */
+            "+'.settlement-chart-panel canvas{display:none!important;visibility:hidden!important;"
+            "+'width:0!important;height:0!important;pointer-events:none!important;}'"
+            "+'.settlement-chart-panel .gt-html-chart{display:block!important;visibility:visible!important;"
+            "+'opacity:1!important;position:relative!important;z-index:6!important;}'"
+            "+'#dualFloatFab:not(.dual-hidden){display:flex!important;opacity:1!important;visibility:visible!important;"
+            "+'z-index:2147483000!important;width:40px!important;height:40px!important;"
+            "+'align-items:center!important;justify-content:center!important;}'"
+            "+'#dualFloatFab .dual-fab-bars{display:flex!important;flex-direction:column!important;"
+            "+'align-items:center!important;justify-content:center!important;gap:3px!important;"
+            "+'width:18px!important;height:14px!important;}'"
+            "+'#dualFloatFab .dual-fab-bars span{display:block!important;width:18px!important;height:2px!important;"
+            "+'min-height:2px!important;margin:0!important;padding:0!important;border:0!important;"
+            "+'border-radius:2px!important;background:#f5d488!important;}'"
             "+'html.baowen-native-app body.tab-embedded{padding-bottom:0!important;}'"
-            /* 悬浮球 */
-            "+'#dualFloatFab,#dualFloatRestore{z-index:9000!important;}'"
-            "+'#dualFloatMask,#dualFloatPanel,#dualExitConfirm,#dualFloatTip{z-index:100050!important;}'"
-            "+'.insulation-modal-root,.insulation-guard-overlay{z-index:200000!important;}'"
-            "+'#dualFloatFab{width:40px!important;height:40px!important;}'"
+            "+'#dualFloatRestore.show{z-index:2147483000!important;}'"
+            "+'#dualFloatMask,#dualFloatPanel{z-index:2147483001!important;}'"
+            "+'#dualExitConfirm,#dualFloatTip{z-index:2147483002!important;}'"
+            "+'.insulation-modal-root,.insulation-guard-overlay{z-index:2147483600!important;}'"
             /* 资费/支付：可点 + 去掉 iOS 蓝色 tap 高亮；不禁用撕边 */
             "+'html.baowen-native-app .notice-price-tag,html.baowen-native-app .notice-price-tag *,'"
             "+'html.baowen-native-app .notice-pay-btn,html.baowen-native-app .notice-pay-btn *{' "
@@ -377,11 +632,18 @@ static NSString *DeviceId(void) {
             "+'-webkit-appearance:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent!important;}'"
             "+'html.baowen-native-app .notice-contact{pointer-events:auto!important;}'"
             "+'html.baowen-native-app .notice-board{margin-bottom:0.35rem!important;}'"
-            /* 登录页：固定壳，避免键盘顶起整页 */
-            "+'html.baowen-native-login body{position:fixed!important;inset:0!important;"
-            "+'width:100%!important;height:100%!important;overflow:hidden!important;}'"
+            /* 登录页：固定壳铺满，酒红底，避免上下黑边/键盘顶起 */
+            "+'html.baowen-native-login,html.baowen-native-login body{' "
+            "+'position:fixed!important;inset:0!important;width:100%!important;height:100%!important;"
+            "+'min-height:100%!important;min-height:-webkit-fill-available!important;"
+            "+'overflow:hidden!important;background:#5c0000!important;background-color:#5c0000!important;}'"
+            "+'html.baowen-native-login body.page-module::before,html.baowen-native-login .page-bg-overlay{' "
+            "+'position:fixed!important;inset:0!important;width:100%!important;height:100%!important;"
+            "+'min-height:100%!important;background-color:#5c0000!important;}'"
             "+'html.baowen-native-app .auth-wrap{height:100%!important;max-height:100%!important;overflow-y:auto!important;"
-            "+'-webkit-overflow-scrolling:touch;padding-top:calc(1rem + env(safe-area-inset-top,var(--sat,0px)))!important;"
+            "+'-webkit-overflow-scrolling:touch;background:transparent!important;"
+            /* 顶部不加 safe-area，红底顶到状态栏顶部 */
+            "+'padding-top:1rem!important;"
             "+'padding-bottom:calc(1rem + env(safe-area-inset-bottom,var(--sab,0px)))!important;box-sizing:border-box!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
             "if(!isGtShell&&!isGtPath&&isBaowenPath&&!document.querySelector('.shell'))document.documentElement.classList.add('baowen-native-scroll');"
@@ -391,6 +653,22 @@ static NSString *DeviceId(void) {
             "}"
             "applyScale();"
             "window.addEventListener('resize',applyScale,{passive:true});"
+            /* 工天输入框：触摸后强制 focus，确保系统键盘弹出 */
+            "if(!window.__baowenIosKeyboardFocus){window.__baowenIosKeyboardFocus=true;"
+            "function __bwFocusField(t){if(!t||t.disabled||t.readOnly)return;"
+            "var tag=(t.tagName||'').toUpperCase();"
+            "if(tag!=='INPUT'&&tag!=='TEXTAREA'&&tag!=='SELECT'&&!t.isContentEditable)return;"
+            "try{t.focus({preventScroll:false});}catch(eF){try{t.focus();}catch(eF2){}}}"
+            "document.addEventListener('touchend',function(ev){"
+            "var t=ev.target;if(!t)return;"
+            "if(t.closest){var f=t.closest('input,textarea,select,[contenteditable=\"true\"]');if(f)t=f;}"
+            "setTimeout(function(){__bwFocusField(t);},0);"
+            "},true);"
+            "document.addEventListener('click',function(ev){"
+            "var t=ev.target;if(!t)return;"
+            "if(t.closest){var f=t.closest('input,textarea,select,[contenteditable=\"true\"]');if(f)t=f;}"
+            "__bwFocusField(t);"
+            "},true);}"
             "}catch(e){}})();";
 
         /* 仅主 frame：顶栏安全区 + iframe 支付 URL 中转 */
@@ -400,11 +678,15 @@ static NSString *DeviceId(void) {
             "document.documentElement.style.setProperty('--sab','%dpx');"
             "if(!document.getElementById('baowen-native-safearea')){"
             "var css=document.createElement('style');css.id='baowen-native-safearea';"
-            "css.textContent='html.baowen-native-app,html.baowen-native-app body{background:#5c0000!important;height:100%%;}'"
+            "css.textContent='html.baowen-native-app,html.baowen-native-app body{background:#5c0000!important;height:100%%;padding-top:0!important;margin:0!important;}'"
             "+'html.baowen-native-app .shell{position:fixed;inset:0;height:100%%;width:100%%;"
-            "+'min-height:100%%;min-height:-webkit-fill-available;background:#5c0000!important;}'"
-            "+'html.baowen-native-app .nav-container{padding-top:max(env(safe-area-inset-top,0px),var(--sat,0px));height:auto;'"
-            "+'min-height:calc(52px + max(env(safe-area-inset-top,0px),var(--sat,0px)));box-sizing:border-box;}'"
+            "+'min-height:100%%;min-height:-webkit-fill-available;background:#5c0000!important;padding-top:0!important;}'"
+            /* 顶栏贴顶：容器 padding=0；内层用 --app-sat（由 safe-area-adapt.js 计算，防云手机双倍） */
+            "+'html.baowen-native-app .nav-container{padding-top:0!important;margin-top:0!important;top:0!important;height:auto;'"
+            "+'min-height:52px;box-sizing:border-box;'"
+            "+'background:linear-gradient(180deg,rgba(139,0,0,.92),rgba(178,34,34,.88),rgba(139,0,0,.92))!important;}'"
+            "+'html.baowen-native-app .nav-container .nav-content{padding-top:0!important;"
+            "+'min-height:52px;box-sizing:border-box;}'"
             "+'html.baowen-native-app .tab-panels{padding-bottom:0!important;background:#5c0000!important;flex:1;min-height:0;}'"
             "+'html.baowen-native-app .tab-panel{background:#5c0000!important;}';"
             "(document.head||document.documentElement).appendChild(css);}"
@@ -506,7 +788,9 @@ static NSString *DeviceId(void) {
         [ucc addScriptMessageHandler:self name:@"InsulationNativeBridge"];
 
         UIView *host = self.rootVC.view;
-        self.webView = [[WKWebView alloc] initWithFrame:host.bounds configuration:config];
+        CGRect full = UIScreen.mainScreen.bounds;
+        host.frame = full;
+        self.webView = [[WKWebView alloc] initWithFrame:full configuration:config];
         self.webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         self.webView.UIDelegate = self;
         self.webView.navigationDelegate = self;
@@ -514,6 +798,9 @@ static NSString *DeviceId(void) {
         UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
         self.webView.backgroundColor = wine;
         self.webView.scrollView.backgroundColor = wine;
+        if (@available(iOS 11.0, *)) {
+            self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        }
         /* 默认允许滚动；全程禁橡皮筋，避免顶底被拉开 */
         self.webView.scrollView.scrollEnabled = YES;
         self.webView.scrollView.bounces = NO;
@@ -570,6 +857,8 @@ static NSString *DeviceId(void) {
     NSString *js = [NSString stringWithFormat:
         @"document.documentElement.style.setProperty('--sat','%dpx');"
         "document.documentElement.style.setProperty('--sab','%dpx');"
+        "document.documentElement.style.setProperty('--app-sat','%dpx');"
+        "document.documentElement.style.setProperty('--app-sab','%dpx');"
         "var href=String(location.href||'');"
         "if(/\\/baowen\\//i.test(href))"
         "document.documentElement.classList.add('baowen-native-app');"
@@ -588,10 +877,29 @@ static NSString *DeviceId(void) {
         "else if(el.tagName==='MAIN'||el.tagName==='FOOTER'){el.style.setProperty('display','block','important');}"
         "else{el.style.setProperty('display','block','important');}"
         "});})();}",
-        sat, sab];
+        sat, sab, sat, sab];
+    /* 强制导航贴顶：清掉容器顶距；内层由 --app-sat 避让；触发网页自适应 */
+    NSString *flushNav = @"try{var n=document.getElementById('mainNav');"
+        "if(n){n.style.setProperty('padding-top','0','important');"
+        "n.style.setProperty('margin-top','0','important');"
+        "n.style.setProperty('top','0','important');}"
+        "var nc=document.querySelector('.nav-container');"
+        "if(nc){nc.style.setProperty('padding-top','0','important');"
+        "nc.style.setProperty('margin-top','0','important');"
+        "nc.style.setProperty('top','0','important');}"
+        "document.documentElement.style.setProperty('padding-top','0','important');"
+        "if(document.body){document.body.style.setProperty('padding-top','0','important');"
+        "document.body.style.setProperty('margin-top','0','important');}"
+        "try{if(window.__SAFE_AREA_ADAPT_READY__){"
+        "var ev=document.createEvent('Event');ev.initEvent('resize',true,true);window.dispatchEvent(ev);}"
+        "}catch(eA){}}catch(e){}";
+    js = [js stringByAppendingString:flushNav];
     [webView evaluateJavaScript:js completionHandler:nil];
     self.webView.scrollView.contentInset = UIEdgeInsetsZero;
     self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *)) {
+        self.webView.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    }
 }
 
 - (void)onKeyboardFrameChange:(NSNotification *)note {
@@ -599,7 +907,11 @@ static NSString *DeviceId(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         self.webView.scrollView.contentInset = UIEdgeInsetsZero;
         self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
-        /* 不强制改 contentOffset，避免和 iframe 内滑动抢手势导致卡死 */
+        /* 始终保持酒红底，避免透明后底部露黑条；键盘由系统正常弹出 */
+        UIColor *wine = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
+        self.webView.backgroundColor = wine;
+        self.webView.scrollView.backgroundColor = wine;
+        if (self.rootVC.view) self.rootVC.view.backgroundColor = wine;
     });
 }
 
@@ -611,6 +923,13 @@ static NSString *DeviceId(void) {
     if (!url) { decisionHandler(WKNavigationActionPolicyAllow); return; }
     NSString *abs = (url.absoluteString ?: @"").lowercaseString;
     NSString *scheme = (url.scheme ?: @"").lowercaseString;
+
+    /* 快捷菜单退出：baowen-app://exit */
+    if ([scheme isEqualToString:@"baowen-app"] || [abs hasPrefix:@"baowen-app://exit"]) {
+        [self handleBridgeMethod:@"exitApp" args:@[]];
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
 
     BOOL isHttp = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
     BOOL isFile = [scheme isEqualToString:@"file"] || [scheme isEqualToString:@"about"] || [scheme isEqualToString:@"blob"];
@@ -677,6 +996,7 @@ static NSString *DeviceId(void) {
 }
 
 - (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString * _Nullable))completionHandler {
+    (void)webView; (void)frame;
     if ([prompt hasPrefix:@"__BRIDGE__"]) {
         NSString *jsonText = [prompt substringFromIndex:10];
         NSData *data = [jsonText dataUsingEncoding:NSUTF8StringEncoding];
@@ -689,7 +1009,21 @@ static NSString *DeviceId(void) {
         }
         completionHandler(@""); return;
     }
-    completionHandler(defaultText ?: @"");
+    /* 普通 prompt 必须弹原生输入框；静默 completion 会导致网页“点了没反应” */
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:prompt preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.secureTextEntry = YES;
+        tf.text = defaultText ?: @"";
+        tf.placeholder = @"请输入密码";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *a) {
+        completionHandler(nil);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        UITextField *tf = alert.textFields.firstObject;
+        completionHandler(tf.text ?: @"");
+    }]];
+    [self.rootVC presentViewController:alert animated:YES completion:nil];
 }
 
 @end

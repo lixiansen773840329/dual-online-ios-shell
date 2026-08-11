@@ -32,6 +32,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandler, UIDocumentPickerDele
         switch method {
         case "getDeviceId":
             return DeviceIdProvider.get()
+        case "getUDID", "getUdid":
+            return DeviceIdProvider.udid()
+        case "getVendorId", "getIdentifierForVendor":
+            return DeviceIdProvider.vendorId()
         case "getDeviceLabel":
             return DeviceIdProvider.deviceLabel()
         case "getDeviceType":
@@ -128,6 +132,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandler, UIDocumentPickerDele
           var api = {
             __iosPromptBridge: true,
             getDeviceId: function(){ return call('getDeviceId'); },
+            getUDID: function(){ return call('getUDID'); },
+            getUdid: function(){ return call('getUDID'); },
+            getVendorId: function(){ return call('getVendorId'); },
             getDeviceLabel: function(){ return call('getDeviceLabel'); },
             getDeviceType: function(){ return call('getDeviceType'); },
             getSafeAreaTop: function(){ return parseInt(call('getSafeAreaTop')||'0',10)||0; },
