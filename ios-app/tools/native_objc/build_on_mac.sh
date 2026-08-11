@@ -16,7 +16,7 @@ xcrun -sdk iphoneos clang \
   -isysroot "$SDK" \
   -miphoneos-version-min="$MIN" \
   -fobjc-arc -O2 \
-  -framework UIKit -framework WebKit -framework Foundation -framework CoreGraphics -framework SafariServices -framework Security \
+  -framework UIKit -framework WebKit -framework Foundation -framework CoreGraphics -framework SafariServices -framework Security -framework UniformTypeIdentifiers -framework MobileCoreServices \
   -o "$CACHE/WebShell" \
   "$ROOT/main.m"
 codesign --remove-signature "$CACHE/WebShell" 2>/dev/null || true
