@@ -38,6 +38,11 @@
 @property (strong, nonatomic) UIWindow *window;
 @property (strong, nonatomic) WKWebView *webView;
 @property (strong, nonatomic) RootViewController *rootVC;
+@property (strong, nonatomic) UIView *splashView;
+@property (strong, nonatomic) UILabel *splashCountdownLabel;
+@property (assign, nonatomic) BOOL splashFinished;
+@property (strong, nonatomic) NSTimer *splashTimer;
+@property (assign, nonatomic) NSInteger splashSecondsLeft;
 @end
 
 @implementation AppDelegate
@@ -366,6 +371,7 @@ static NSString *AppUdidAlias(void) {
         strong.window.frame = screen;
         strong.rootVC.view.frame = screen;
         strong.webView.frame = screen;
+        if (strong.splashView) strong.splashView.frame = screen;
         int sat = (int)lround([strong safeTop]);
         int sab = (int)lround([strong safeBottom]);
         NSString *js = [NSString stringWithFormat:
@@ -384,8 +390,101 @@ static NSString *AppUdidAlias(void) {
         label.textAlignment = NSTextAlignmentCenter; label.numberOfLines = 0; label.textColor = UIColor.whiteColor;
         label.text = @"保温系统\n最小模式"; [self.rootVC.view addSubview:label]; return YES;
     }
-    dispatch_async(dispatch_get_main_queue(), ^{ [self mountWebView]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self mountWebView];
+        [self setupAndShowSplash];
+    });
     return YES;
+}
+
+- (UIImage *)loadBundledSplashImage {
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSArray *paths = @[
+        [bundle pathForResource:@"splash" ofType:@"png"],
+        [bundle pathForResource:@"splash" ofType:@"png" inDirectory:@"www"],
+        [[[bundle resourcePath] stringByAppendingPathComponent:@"splash.png"] copy],
+        [[[bundle resourcePath] stringByAppendingPathComponent:@"www/splash.png"] copy],
+    ];
+    for (NSString *path in paths) {
+        if (path.length && [[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            UIImage *img = [UIImage imageWithContentsOfFile:path];
+            if (img) return img;
+        }
+    }
+    return nil;
+}
+
+- (void)setupAndShowSplash {
+    if (self.splashView || self.splashFinished) return;
+    UIView *host = self.rootVC.view;
+    CGRect full = UIScreen.mainScreen.bounds;
+
+    UIView *panel = [[UIView alloc] initWithFrame:full];
+    panel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    panel.backgroundColor = [UIColor colorWithRed:0.05 green:0.01 blue:0.01 alpha:1];
+
+    UIImageView *imageView = [[UIImageView alloc] initWithFrame:panel.bounds];
+    imageView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    imageView.contentMode = UIViewContentModeScaleAspectFill;
+    imageView.clipsToBounds = YES;
+    UIImage *img = [self loadBundledSplashImage];
+    if (img) {
+        imageView.image = img;
+    } else {
+        imageView.backgroundColor = [UIColor colorWithRed:0.36 green:0.0 blue:0.0 alpha:1];
+    }
+    [panel addSubview:imageView];
+
+    CGFloat topPad = 20;
+    if (@available(iOS 11.0, *)) {
+        topPad = MAX(20, host.safeAreaInsets.top + 12);
+    }
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(full.size.width - 68, topPad, 48, 48)];
+    label.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
+    label.textAlignment = NSTextAlignmentCenter;
+    label.textColor = [UIColor colorWithRed:0.83 green:0.69 blue:0.31 alpha:1];
+    label.font = [UIFont boldSystemFontOfSize:18];
+    label.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45];
+    label.layer.cornerRadius = 24;
+    label.clipsToBounds = YES;
+    self.splashSecondsLeft = 3;
+    label.text = [NSString stringWithFormat:@"%ld", (long)self.splashSecondsLeft];
+    [panel addSubview:label];
+
+    [host addSubview:panel];
+    self.splashView = panel;
+    self.splashCountdownLabel = label;
+    self.splashFinished = NO;
+
+    [self.splashTimer invalidate];
+    __weak AppDelegate *weakSelf = self;
+    self.splashTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
+        AppDelegate *strong = weakSelf;
+        if (!strong) { [timer invalidate]; return; }
+        strong.splashSecondsLeft -= 1;
+        if (strong.splashSecondsLeft <= 0) {
+            [timer invalidate];
+            [strong finishSplash];
+        } else {
+            strong.splashCountdownLabel.text = [NSString stringWithFormat:@"%ld", (long)strong.splashSecondsLeft];
+        }
+    }];
+}
+
+- (void)finishSplash {
+    if (self.splashFinished) return;
+    self.splashFinished = YES;
+    [self.splashTimer invalidate];
+    self.splashTimer = nil;
+    UIView *panel = self.splashView;
+    self.splashView = nil;
+    self.splashCountdownLabel = nil;
+    if (!panel) return;
+    [UIView animateWithDuration:0.25 animations:^{
+        panel.alpha = 0;
+    } completion:^(BOOL finished) {
+        [panel removeFromSuperview];
+    }];
 }
 
 - (void)mountWebView {
